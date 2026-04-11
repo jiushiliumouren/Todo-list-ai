@@ -153,28 +153,73 @@ def search_todos():
 
 @app.route('/api/todos/export', methods=['GET'])
 def export_todos():
-    """导出所有待办事项为JSON"""
+    """导出所有待办事项为Excel"""
     try:
         from flask import make_response
-        import json
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment
+        import io
         import time
+        import os
         
-        # 创建导出数据
-        export_data = {
-            "export_date": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "total_todos": len(todos),
-            "todos": todos
-        }
+        # 检查是否有现有的Excel文件
+        excel_file_path = os.path.join(os.path.dirname(__file__), 'todos_export.xlsx')
+        file_exists = os.path.exists(excel_file_path)
+        
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "待办事项"
+        
+        # 设置标题行
+        headers = ['ID', '待办事项内容', '完成状态', '导出时间']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center')
+        
+        # 添加数据行
+        row = 2
+        for todo in todos:
+            ws.cell(row=row, column=1, value=todo['id'])
+            ws.cell(row=row, column=2, value=todo['text'])
+            ws.cell(row=row, column=3, value='已完成' if todo['completed'] else '未完成')
+            ws.cell(row=row, column=4, value=time.strftime("%Y-%m-%d %H:%M:%S"))
+            row += 1
+        
+        # 如果没有数据，添加提示
+        if not todos:
+            ws.cell(row=2, column=1, value="暂无待办事项")
+            ws.merge_cells('A2:D2')
+            ws.cell(row=2, column=1).alignment = Alignment(horizontal='center')
+        
+        # 调整列宽
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # 保存到内存
+        output = io.BytesIO()
+        wb.save(output)
+        excel_data = output.getvalue()
         
         # 创建响应
-        response = make_response(json.dumps(export_data, ensure_ascii=False, indent=2))
-        response.headers['Content-Type'] = 'application/json'
-        response.headers['Content-Disposition'] = f'attachment; filename=todos_export_{time.strftime("%Y%m%d_%H%M%S")}.json'
+        response = make_response(excel_data)
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        response.headers['Content-Disposition'] = f'attachment; filename=todos_export_{time.strftime("%Y%m%d_%H%M%S")}.xlsx'
         
-        logger.info(f"导出待办事项，总数: {len(todos)}")
+        logger.info(f"导出待办事项到Excel，总数: {len(todos)}")
         return response
     except Exception as e:
-        logger.error(f"导出待办事项时出错: {str(e)}")
+        logger.error(f"导出待办事项到Excel时出错: {str(e)}")
         return jsonify({"error": "服务器内部错误"}), 500
 
 @app.route('/api/todos/<int:todo_id>', methods=['DELETE'])

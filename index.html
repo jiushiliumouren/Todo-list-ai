@@ -315,7 +315,7 @@
             <div class="controls-section">
                 <input type="text" id="searchInput" placeholder="搜索待办事项..." autocomplete="off">
                 <button id="searchBtn" class="secondary-btn">搜索</button>
-                <button id="exportBtn" class="export-btn">导出JSON</button>
+                <button id="exportBtn" class="export-btn">导出Excel</button>
                 <button id="clearSearchBtn" class="clear-btn">清除搜索</button>
             </div>
             
@@ -695,23 +695,34 @@
             });
             
             todoList.appendChild(fragment);
-            
-            // 添加事件监听器（事件委托）
-            todoList.addEventListener('change', (e) => {
+        }
+        
+        // 初始化事件监听器（只绑定一次）
+        function initEventListeners() {
+            // 移除旧的事件监听器（使用命名函数以便移除）
+            const handleCheckboxChange = (e) => {
                 if (e.target.classList.contains('todo-checkbox')) {
                     const id = parseInt(e.target.dataset.id);
                     const completed = e.target.checked;
                     updateTodo(id, { completed });
                 }
-            });
+            };
             
-            todoList.addEventListener('click', (e) => {
+            const handleDeleteClick = (e) => {
                 if (e.target.classList.contains('delete-btn')) {
                     const id = parseInt(e.target.dataset.id);
                     const text = e.target.dataset.text || '这个待办事项';
                     deleteTodo(id, text);
                 }
-            });
+            };
+            
+            // 先移除可能存在的旧监听器
+            todoList.removeEventListener('change', handleCheckboxChange);
+            todoList.removeEventListener('click', handleDeleteClick);
+            
+            // 添加新的事件监听器
+            todoList.addEventListener('change', handleCheckboxChange);
+            todoList.addEventListener('click', handleDeleteClick);
         }
         
         // 更新统计信息
@@ -852,7 +863,7 @@
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `todos_export_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+                a.download = `todos_export_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -912,6 +923,9 @@
             
             // 设置键盘快捷键
             setupKeyboardShortcuts();
+            
+            // 初始化事件监听器
+            initEventListeners();
             
             // 加载待办事项
             fetchTodos();
