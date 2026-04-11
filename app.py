@@ -130,6 +130,53 @@ def update_todo(todo_id):
         logger.error(f"更新待办事项 {todo_id} 时出错: {str(e)}")
         return jsonify({"error": "服务器内部错误"}), 500
 
+@app.route('/api/todos/search', methods=['GET'])
+def search_todos():
+    """搜索待办事项"""
+    try:
+        search_term = request.args.get('q', '').strip().lower()
+        
+        if not search_term:
+            return jsonify(todos)
+        
+        # 搜索匹配的待办事项
+        filtered_todos = [
+            todo for todo in todos
+            if search_term in todo['text'].lower()
+        ]
+        
+        logger.info(f"搜索 '{search_term}', 找到 {len(filtered_todos)} 个结果")
+        return jsonify(filtered_todos)
+    except Exception as e:
+        logger.error(f"搜索待办事项时出错: {str(e)}")
+        return jsonify({"error": "服务器内部错误"}), 500
+
+@app.route('/api/todos/export', methods=['GET'])
+def export_todos():
+    """导出所有待办事项为JSON"""
+    try:
+        from flask import make_response
+        import json
+        import time
+        
+        # 创建导出数据
+        export_data = {
+            "export_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "total_todos": len(todos),
+            "todos": todos
+        }
+        
+        # 创建响应
+        response = make_response(json.dumps(export_data, ensure_ascii=False, indent=2))
+        response.headers['Content-Type'] = 'application/json'
+        response.headers['Content-Disposition'] = f'attachment; filename=todos_export_{time.strftime("%Y%m%d_%H%M%S")}.json'
+        
+        logger.info(f"导出待办事项，总数: {len(todos)}")
+        return response
+    except Exception as e:
+        logger.error(f"导出待办事项时出错: {str(e)}")
+        return jsonify({"error": "服务器内部错误"}), 500
+
 @app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
 def delete_todo(todo_id):
     """删除待办事项"""

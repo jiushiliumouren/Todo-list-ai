@@ -48,13 +48,20 @@
             padding: 30px;
         }
         
+        .controls-section {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
         .input-section {
             display: flex;
             gap: 10px;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
         
-        #todoInput {
+        #todoInput, #searchInput {
             flex: 1;
             padding: 15px;
             border: 2px solid #e0e0e0;
@@ -63,7 +70,7 @@
             transition: border-color 0.3s;
         }
         
-        #todoInput:focus {
+        #todoInput:focus, #searchInput:focus {
             outline: none;
             border-color: #667eea;
         }
@@ -78,6 +85,99 @@
             font-size: 1rem;
             font-weight: 600;
             transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .secondary-btn {
+            background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
+        }
+        
+        .export-btn {
+            background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+        }
+        
+        .theme-btn {
+            background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
+        }
+        
+        .clear-btn {
+            background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+        }
+        
+        .controls-section button {
+            padding: 10px 20px;
+            font-size: 0.9rem;
+        }
+        
+        .theme-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: all 0.3s;
+        }
+        
+        .theme-toggle:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+        
+        /* 深色主题样式 */
+        body.dark-theme {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+        
+        body.dark-theme .container {
+            background: #2d3047;
+            color: #e0e0e0;
+        }
+        
+        body.dark-theme header {
+            background: linear-gradient(135deg, #434670 0%, #2d3047 100%);
+        }
+        
+        body.dark-theme #todoInput,
+        body.dark-theme #searchInput {
+            background: #3a3e5c;
+            border-color: #434670;
+            color: #e0e0e0;
+        }
+        
+        body.dark-theme .stats {
+            background: #3a3e5c;
+            color: #e0e0e0;
+        }
+        
+        body.dark-theme .todo-item {
+            background: #3a3e5c;
+        }
+        
+        body.dark-theme .todo-item.completed {
+            background: #2d4a2d;
+        }
+        
+        body.dark-theme footer {
+            color: #a0a0a0;
+            border-top-color: #434670;
+        }
+        
+        .search-info {
+            text-align: center;
+            padding: 10px;
+            color: #666;
+            font-style: italic;
+        }
+        
+        body.dark-theme .search-info {
+            color: #a0a0a0;
         }
         
         button:hover {
@@ -201,14 +301,23 @@
     </style>
 </head>
 <body>
+    <button class="theme-toggle" id="themeToggle">🌙</button>
+    
     <div class="container">
         <header>
             <h1>📝 待办事项</h1>
-            <p class="subtitle">一个简单的前后端分离应用演示</p>
+            <p class="subtitle">一个优化后的待办事项应用</p>
         </header>
         
         <div class="main-content">
             <div class="error" id="errorMessage"></div>
+            
+            <div class="controls-section">
+                <input type="text" id="searchInput" placeholder="搜索待办事项..." autocomplete="off">
+                <button id="searchBtn" class="secondary-btn">搜索</button>
+                <button id="exportBtn" class="export-btn">导出JSON</button>
+                <button id="clearSearchBtn" class="clear-btn">清除搜索</button>
+            </div>
             
             <div class="input-section">
                 <input type="text" id="todoInput" placeholder="输入新的待办事项..." autocomplete="off">
@@ -221,13 +330,15 @@
                 <div>未完成: <span id="pendingCount">0</span></div>
             </div>
             
+            <div class="search-info" id="searchInfo" style="display: none;"></div>
+            
             <div class="loading" id="loading">加载中...</div>
             
             <ul class="todo-list" id="todoList"></ul>
         </div>
         
         <footer>
-            <p>这是一个展示前后端能力的简单应用 | 后端: Flask | 前端: HTML/CSS/JavaScript</p>
+            <p>优化功能: 搜索过滤 | 数据导出 | 主题切换 | 本地缓存 | 键盘快捷键</p>
         </footer>
     </div>
 
@@ -678,6 +789,154 @@
             
             // 添加按钮点击事件
             addBtn.addEventListener('click', addTodo);
+            
+            // 输入框回车事件
+            todoInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    addTodo();
+                }
+            });
+            
+            // 初始焦点
+            todoInput.focus();
+        }
+        
+        // 搜索待办事项
+        async function searchTodos() {
+            const searchInput = document.getElementById('searchInput');
+            const searchTerm = searchInput.value.trim();
+            const searchInfo = document.getElementById('searchInfo');
+            
+            if (!searchTerm) {
+                fetchTodos();
+                searchInfo.style.display = 'none';
+                return;
+            }
+            
+            try {
+                setLoading(true);
+                const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(searchTerm)}`);
+                
+                if (!response.ok) {
+                    throw new Error(`搜索失败: ${response.status}`);
+                }
+                
+                const results = await response.json();
+                
+                // 显示搜索结果
+                renderTodos(results);
+                updateStats(results);
+                
+                // 显示搜索信息
+                searchInfo.textContent = `搜索 "${searchTerm}" 找到 ${results.length} 个结果`;
+                searchInfo.style.display = 'block';
+                
+            } catch (error) {
+                showError('搜索失败: ' + error.message);
+            } finally {
+                setLoading(false);
+            }
+        }
+        
+        // 导出待办事项
+        async function exportTodos() {
+            try {
+                const response = await fetch(`${API_BASE}/export`);
+                
+                if (!response.ok) {
+                    throw new Error(`导出失败: ${response.status}`);
+                }
+                
+                // 创建下载链接
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `todos_export_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                showSuccess('待办事项导出成功！');
+                
+            } catch (error) {
+                showError('导出失败: ' + error.message);
+            }
+        }
+        
+        // 切换主题
+        function toggleTheme() {
+            const body = document.body;
+            const themeToggle = document.getElementById('themeToggle');
+            
+            if (body.classList.contains('dark-theme')) {
+                body.classList.remove('dark-theme');
+                themeToggle.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            } else {
+                body.classList.add('dark-theme');
+                themeToggle.textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+        
+        // 加载保存的主题
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const themeToggle = document.getElementById('themeToggle');
+            
+            if (savedTheme === 'dark') {
+                document.body.classList.add('dark-theme');
+                themeToggle.textContent = '☀️';
+            } else {
+                document.body.classList.remove('dark-theme');
+                themeToggle.textContent = '🌙';
+            }
+        }
+        
+        // 清除搜索
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchInfo').style.display = 'none';
+            fetchTodos();
+        }
+        
+        // 初始化应用
+        function init() {
+            // 加载主题
+            loadTheme();
+            
+            // 添加CSS动画
+            addCSSAnimations();
+            
+            // 设置键盘快捷键
+            setupKeyboardShortcuts();
+            
+            // 加载待办事项
+            fetchTodos();
+            
+            // 添加按钮点击事件
+            addBtn.addEventListener('click', addTodo);
+            
+            // 搜索按钮事件
+            document.getElementById('searchBtn').addEventListener('click', searchTodos);
+            
+            // 导出按钮事件
+            document.getElementById('exportBtn').addEventListener('click', exportTodos);
+            
+            // 清除搜索按钮事件
+            document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
+            
+            // 主题切换按钮事件
+            document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+            
+            // 搜索框回车事件
+            document.getElementById('searchInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchTodos();
+                }
+            });
             
             // 输入框回车事件
             todoInput.addEventListener('keypress', (e) => {
