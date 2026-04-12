@@ -36,5 +36,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    onefile=True,
     icon='tubiao.ico'             # 可添加自己的图标文件
 )
