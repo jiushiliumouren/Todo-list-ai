@@ -1,253 +1,199 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, make_response
 from flask_cors import CORS
 import os
 import logging
+import io
+import time
 from typing import List, Dict, Any, Optional
 
 app = Flask(__name__)
-CORS(app)  # 允许跨域请求
+CORS(app)
 
-# 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 内存存储待办事项
+# 内存存储
 todos: List[Dict[str, Any]] = [
-    {"id": 1, "text": "学习Python", "completed": False},
-    {"id": 2, "text": "开发Flask应用", "completed": True},
-    {"id": 3, "text": "学习JavaScript", "completed": False}
+    {"id": 1, "text": "学习Python",    "completed": False, "priority": "high", "due_date": None},
+    {"id": 2, "text": "开发Flask应用", "completed": True,  "priority": "mid",  "due_date": None},
+    {"id": 3, "text": "学习JavaScript","completed": False, "priority": "low",  "due_date": None},
 ]
 
-# 辅助函数
+
+# ── 辅助 ────────────────────────────────────────────────
+
 def get_next_id() -> int:
-    """获取下一个可用的ID"""
-    if not todos:
-        return 1
-    return max(todo['id'] for todo in todos) + 1
+    return max((t["id"] for t in todos), default=0) + 1
 
-def find_todo_by_id(todo_id: int) -> Optional[Dict[str, Any]]:
-    """根据ID查找待办事项"""
-    for todo in todos:
-        if todo['id'] == todo_id:
-            return todo
-    return None
 
-def validate_todo_data(data: Dict[str, Any]) -> tuple[bool, str]:
-    """验证待办事项数据"""
+def find_todo(todo_id: int) -> Optional[Dict[str, Any]]:
+    return next((t for t in todos if t["id"] == todo_id), None)
+
+
+VALID_PRIORITIES = {"high", "mid", "low"}
+
+def validate_payload(data: Dict[str, Any]) -> tuple[bool, str]:
     if not data:
         return False, "请求体不能为空"
-    
-    if 'text' in data:
-        text = data['text']
-        if not isinstance(text, str):
-            return False, "text必须是字符串"
-        if not text.strip():
-            return False, "待办事项文本不能为空"
+    if "text" in data:
+        text = data["text"]
+        if not isinstance(text, str) or not text.strip():
+            return False, "text 必须是非空字符串"
         if len(text.strip()) > 500:
-            return False, "待办事项文本过长（最大500字符）"
-    
-    if 'completed' in data:
-        completed = data['completed']
-        if not isinstance(completed, bool):
-            return False, "completed必须是布尔值"
-    
+            return False, "text 过长（最大 500 字符）"
+    if "completed" in data and not isinstance(data["completed"], bool):
+        return False, "completed 必须是布尔值"
+    if "priority" in data and data["priority"] not in VALID_PRIORITIES:
+        return False, f"priority 必须是 {VALID_PRIORITIES} 之一"
+    if "due_date" in data:
+        d = data["due_date"]
+        if d is not None:
+            if not isinstance(d, str):
+                return False, "due_date 必须是 YYYY-MM-DD 字符串或 null"
+            try:
+                time.strptime(d, "%Y-%m-%d")
+            except ValueError:
+                return False, "due_date 格式错误，应为 YYYY-MM-DD"
     return True, ""
 
-# 静态文件服务
-@app.route('/')
+
+# ── 静态文件 ────────────────────────────────────────────
+
+@app.route("/")
 def index():
-    return send_from_directory('.', 'index.html')
+    return send_from_directory(".", "index.html")
 
-@app.route('/<path:path>')
+@app.route("/<path:path>")
 def serve_static(path):
-    return send_from_directory('.', path)
+    return send_from_directory(".", path)
 
-# API路由
-@app.route('/api/todos', methods=['GET'])
+
+# ── API ─────────────────────────────────────────────────
+
+@app.route("/api/todos", methods=["GET"])
 def get_todos():
-    """获取所有待办事项"""
-    logger.info(f"获取待办事项，当前数量: {len(todos)}")
+    logger.info("GET /api/todos  count=%d", len(todos))
     return jsonify(todos)
 
-@app.route('/api/todos', methods=['POST'])
+
+@app.route("/api/todos", methods=["POST"])
 def add_todo():
-    """添加新的待办事项"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "请求体不能为空"}), 400
-        
-        # 验证数据
-        is_valid, error_message = validate_todo_data(data)
-        if not is_valid:
-            return jsonify({"error": error_message}), 400
-        
-        if 'text' not in data:
-            return jsonify({"error": "缺少待办事项文本"}), 400
-        
-        # 创建新待办事项
-        new_todo = {
-            "id": get_next_id(),
-            "text": data['text'].strip(),
-            "completed": False
-        }
-        
-        todos.append(new_todo)
-        logger.info(f"添加待办事项: {new_todo}")
-        
-        return jsonify(new_todo), 201
-    except Exception as e:
-        logger.error(f"添加待办事项时出错: {str(e)}")
-        return jsonify({"error": "服务器内部错误"}), 500
+    data = request.get_json(silent=True) or {}
+    ok, msg = validate_payload(data)
+    if not ok:
+        return jsonify({"error": msg}), 400
+    if "text" not in data:
+        return jsonify({"error": "缺少 text 字段"}), 400
 
-@app.route('/api/todos/<int:todo_id>', methods=['PUT'])
-def update_todo(todo_id):
-    """更新待办事项"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "请求体不能为空"}), 400
-        
-        # 验证数据
-        is_valid, error_message = validate_todo_data(data)
-        if not is_valid:
-            return jsonify({"error": error_message}), 400
-        
-        # 查找待办事项
-        todo = find_todo_by_id(todo_id)
-        if not todo:
-            return jsonify({"error": "待办事项未找到"}), 404
-        
-        # 更新字段
-        if 'text' in data:
-            todo['text'] = data['text'].strip()
-        if 'completed' in data:
-            todo['completed'] = data['completed']
-        
-        logger.info(f"更新待办事项 {todo_id}: {todo}")
-        return jsonify(todo)
-    except Exception as e:
-        logger.error(f"更新待办事项 {todo_id} 时出错: {str(e)}")
-        return jsonify({"error": "服务器内部错误"}), 500
+    todo = {
+        "id":        get_next_id(),
+        "text":      data["text"].strip(),
+        "completed": False,
+        "priority":  data.get("priority", "mid"),
+        "due_date":  data.get("due_date", None),
+    }
+    todos.append(todo)
+    logger.info("POST /api/todos  id=%d", todo["id"])
+    return jsonify(todo), 201
 
-@app.route('/api/todos/search', methods=['GET'])
+
+@app.route("/api/todos/search", methods=["GET"])
 def search_todos():
-    """搜索待办事项"""
-    try:
-        search_term = request.args.get('q', '').strip().lower()
-        
-        if not search_term:
-            return jsonify(todos)
-        
-        # 搜索匹配的待办事项
-        filtered_todos = [
-            todo for todo in todos
-            if search_term in todo['text'].lower()
-        ]
-        
-        logger.info(f"搜索 '{search_term}', 找到 {len(filtered_todos)} 个结果")
-        return jsonify(filtered_todos)
-    except Exception as e:
-        logger.error(f"搜索待办事项时出错: {str(e)}")
-        return jsonify({"error": "服务器内部错误"}), 500
+    # 必须在 /<int:todo_id> 路由之前注册
+    q = request.args.get("q", "").strip().lower()
+    results = todos if not q else [t for t in todos if q in t["text"].lower()]
+    logger.info("GET /api/todos/search  q=%r  found=%d", q, len(results))
+    return jsonify(results)
 
-@app.route('/api/todos/export', methods=['GET'])
+
+@app.route("/api/todos/export", methods=["GET"])
 def export_todos():
-    """导出所有待办事项为Excel"""
     try:
-        from flask import make_response
         from openpyxl import Workbook
-        from openpyxl.styles import Font, Alignment
-        import io
-        import time
-        import os
-        
-        # 检查是否有现有的Excel文件
-        excel_file_path = os.path.join(os.path.dirname(__file__), 'todos_export.xlsx')
-        file_exists = os.path.exists(excel_file_path)
-        
-        # 创建工作簿
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "待办事项"
-        
-        # 设置标题行
-        headers = ['ID', '待办事项内容', '完成状态', '导出时间']
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal='center')
-        
-        # 添加数据行
-        row = 2
-        for todo in todos:
-            ws.cell(row=row, column=1, value=todo['id'])
-            ws.cell(row=row, column=2, value=todo['text'])
-            ws.cell(row=row, column=3, value='已完成' if todo['completed'] else '未完成')
-            ws.cell(row=row, column=4, value=time.strftime("%Y-%m-%d %H:%M:%S"))
-            row += 1
-        
-        # 如果没有数据，添加提示
-        if not todos:
-            ws.cell(row=2, column=1, value="暂无待办事项")
-            ws.merge_cells('A2:D2')
-            ws.cell(row=2, column=1).alignment = Alignment(horizontal='center')
-        
-        # 调整列宽
-        for column in ws.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            ws.column_dimensions[column_letter].width = adjusted_width
-        
-        # 保存到内存
-        output = io.BytesIO()
-        wb.save(output)
-        excel_data = output.getvalue()
-        
-        # 创建响应
-        response = make_response(excel_data)
-        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        response.headers['Content-Disposition'] = f'attachment; filename=todos_export_{time.strftime("%Y%m%d_%H%M%S")}.xlsx'
-        
-        logger.info(f"导出待办事项到Excel，总数: {len(todos)}")
-        return response
-    except Exception as e:
-        logger.error(f"导出待办事项到Excel时出错: {str(e)}")
-        return jsonify({"error": "服务器内部错误"}), 500
+        from openpyxl.styles import Font, Alignment, PatternFill
+    except ImportError:
+        return jsonify({"error": "缺少 openpyxl，请执行 pip install openpyxl"}), 500
 
-@app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "待办事项"
+
+    headers = ["ID", "内容", "优先级", "截止日期", "完成状态", "导出时间"]
+    fill = PatternFill("solid", fgColor="C0392B")
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center")
+        cell.fill = fill
+
+    pri_labels = {"high": "高", "mid": "中", "low": "低"}
+
+    if todos:
+        for row, t in enumerate(todos, 2):
+            ws.cell(row=row, column=1, value=t["id"])
+            ws.cell(row=row, column=2, value=t["text"])
+            ws.cell(row=row, column=3, value=pri_labels.get(t.get("priority","mid"), "中"))
+            ws.cell(row=row, column=4, value=t.get("due_date") or "—")
+            ws.cell(row=row, column=5, value="已完成" if t["completed"] else "未完成")
+            ws.cell(row=row, column=6, value=now)
+    else:
+        ws.merge_cells("A2:F2")
+        ws.cell(row=2, column=1, value="暂无数据").alignment = Alignment(horizontal="center")
+
+    for col in ws.columns:
+        w = max((len(str(c.value or "")) for c in col), default=8) + 4
+        ws.column_dimensions[col[0].column_letter].width = min(w, 60)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    resp = make_response(buf.getvalue())
+    resp.headers["Content-Type"] = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    resp.headers["Content-Disposition"] = (
+        f'attachment; filename="todos_{time.strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    )
+    logger.info("GET /api/todos/export  count=%d", len(todos))
+    return resp
+
+
+@app.route("/api/todos/<int:todo_id>", methods=["PUT"])
+def update_todo(todo_id):
+    data = request.get_json(silent=True) or {}
+    ok, msg = validate_payload(data)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    todo = find_todo(todo_id)
+    if not todo:
+        return jsonify({"error": "待办事项未找到"}), 404
+
+    if "text"      in data: todo["text"]      = data["text"].strip()
+    if "completed" in data: todo["completed"] = data["completed"]
+    if "priority"  in data: todo["priority"]  = data["priority"]
+    if "due_date"  in data: todo["due_date"]  = data["due_date"]
+
+    logger.info("PUT /api/todos/%d  %s", todo_id, todo)
+    return jsonify(todo)
+
+
+@app.route("/api/todos/<int:todo_id>", methods=["DELETE"])
 def delete_todo(todo_id):
-    """删除待办事项"""
-    try:
-        # 查找待办事项
-        todo = find_todo_by_id(todo_id)
-        if not todo:
-            return jsonify({"error": "待办事项未找到"}), 404
-        
-        # 删除待办事项
-        todos[:] = [todo for todo in todos if todo['id'] != todo_id]
-        
-        logger.info(f"删除待办事项: {todo}")
-        return jsonify({"message": "删除成功", "deleted_todo": todo}), 200
-    except Exception as e:
-        logger.error(f"删除待办事项 {todo_id} 时出错: {str(e)}")
-        return jsonify({"error": "服务器内部错误"}), 500
+    # 注意：用 target 避免与列表推导变量同名（原代码 bug）
+    target = find_todo(todo_id)
+    if not target:
+        return jsonify({"error": "待办事项未找到"}), 404
 
-if __name__ == '__main__':
-    # 确保静态文件目录存在
-    static_dir = os.path.join(os.path.dirname(__file__), 'static')
-    if not os.path.exists(static_dir):
-        os.makedirs(static_dir)
-    
-    logger.info("待办事项应用启动中...")
-    logger.info("访问地址: http://localhost:5000")
-    logger.info(f"当前待办事项数量: {len(todos)}")
-    
+    todos[:] = [t for t in todos if t["id"] != todo_id]
+    logger.info("DELETE /api/todos/%d", todo_id)
+    return jsonify({"message": "删除成功", "deleted_todo": target})
+
+
+# ── 启动 ────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    logger.info("待办事项应用启动中...  http://localhost:5000")
     app.run(debug=True, port=5000, use_reloader=False)
