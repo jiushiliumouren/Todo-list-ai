@@ -5,6 +5,8 @@ import logging
 import io
 import time
 from typing import List, Dict, Any, Optional
+from flask import Flask, send_from_directory
+from flaskwebgui import FlaskUI  # 1. 导入FlaskUI
 
 app = Flask(__name__)
 CORS(app)
@@ -194,6 +196,6 @@ def delete_todo(todo_id):
 
 # ── 启动 ────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    logger.info("待办事项应用启动中...  http://localhost:5000")
-    app.run(debug=True, port=5000, use_reloader=False)
+if __name__ == '__main__':
+    # 2. 用FlaskUI包装应用并运行，它会自动打开一个桌面窗口
+    FlaskUI(app=app, server="flask", width=800, height=600).run()
