@@ -23,7 +23,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='TodoApp',               # 生成的 exe 名称
+    name='干！',               # 生成的 exe 名称
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -37,5 +37,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     onefile=True,
-    icon='tubiao.ico'             # 可添加自己的图标文件
+    icon='biao.ico'             # 可添加自己的图标文件
 )

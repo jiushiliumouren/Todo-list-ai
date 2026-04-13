@@ -4,9 +4,9 @@ import os
 import logging
 import io
 import time
+import json
 from typing import List, Dict, Any, Optional
-from flask import Flask, send_from_directory
-from flaskwebgui import FlaskUI  # 1. 导入FlaskUI
+from flaskwebgui import FlaskUI
 
 app = Flask(__name__)
 CORS(app)
@@ -14,23 +14,87 @@ CORS(app)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 内存存储
-todos: List[Dict[str, Any]] = [
-    {"id": 1, "text": "学习Python",    "completed": False, "priority": "high", "due_date": None},
-    {"id": 2, "text": "开发Flask应用", "completed": True,  "priority": "mid",  "due_date": None},
-    {"id": 3, "text": "学习JavaScript","completed": False, "priority": "low",  "due_date": None},
-]
+# ========== 数据持久化配置 ==========
+# 将数据文件保存在当前用户目录下的一个隐藏文件夹中，避免权限问题
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".todo_app")
+DATA_FILE = os.path.join(DATA_DIR, "todos.json")
 
+def ensure_data_dir():
+    """确保数据目录存在"""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
 
-# ── 辅助 ────────────────────────────────────────────────
+def load_todos() -> List[Dict[str, Any]]:
+    """从 JSON 文件加载待办事项列表"""
+    ensure_data_dir()
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # 确保每个 todo 都有必要的字段（兼容旧数据）
+                for todo in data:
+                    if 'priority' not in todo:
+                        todo['priority'] = 'mid'
+                    if 'due_date' not in todo:
+                        todo['due_date'] = None
+                    if 'notes' not in todo:
+                        todo['notes'] = ''
+                    if 'tags' not in todo:
+                        todo['tags'] = []
+                    if 'steps' not in todo:
+                        todo['steps'] = []
+                    # 兼容旧 steps 数据
+                    for step in todo.get('steps', []):
+                        if 'due_date' not in step:
+                            step['due_date'] = None
+                logger.info(f"从文件加载了 {len(data)} 条待办事项")
+                return data
+        except Exception as e:
+            logger.error(f"加载数据文件失败: {e}，使用默认数据")
+    # 无文件或读取失败时返回默认示例数据
+    return [
+        {"id": 1, "text": "学习Python",    "completed": False, "priority": "high", "due_date": None, "notes": "", "tags": ["学习"], "steps": [
+            {"id": 1, "text": "安装Python环境", "completed": True,  "due_date": None},
+            {"id": 2, "text": "学习基础语法",   "completed": False, "due_date": None},
+            {"id": 3, "text": "完成练习项目",   "completed": False, "due_date": None},
+        ]},
+        {"id": 2, "text": "开发Flask应用", "completed": True,  "priority": "mid",  "due_date": None, "notes": "", "tags": ["开发"], "steps": []},
+        {"id": 3, "text": "学习JavaScript","completed": False, "priority": "low",  "due_date": None, "notes": "", "tags": ["学习"], "steps": []},
+    ]
 
+def save_todos(data: List[Dict[str, Any]]):
+    """将待办事项列表保存到 JSON 文件"""
+    ensure_data_dir()
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.info(f"数据已保存，当前共 {len(data)} 条")
+    except Exception as e:
+        logger.error(f"保存数据文件失败: {e}")
+
+# 初始化内存数据（从文件加载）
+todos: List[Dict[str, Any]] = load_todos()
+
+# ========== 辅助函数 ==========
 def get_next_id() -> int:
     return max((t["id"] for t in todos), default=0) + 1
-
 
 def find_todo(todo_id: int) -> Optional[Dict[str, Any]]:
     return next((t for t in todos if t["id"] == todo_id), None)
 
+def get_next_step_id(todo: Dict[str, Any]) -> int:
+    return max((s["id"] for s in todo.get("steps", [])), default=0) + 1
+
+def validate_due_date(d) -> tuple[bool, str]:
+    if d is None:
+        return True, ""
+    if not isinstance(d, str):
+        return False, "due_date 必须是 YYYY-MM-DD 字符串或 null"
+    try:
+        time.strptime(d, "%Y-%m-%d")
+        return True, ""
+    except ValueError:
+        return False, "due_date 格式错误，应为 YYYY-MM-DD"
 
 VALID_PRIORITIES = {"high", "mid", "low"}
 
@@ -47,6 +111,21 @@ def validate_payload(data: Dict[str, Any]) -> tuple[bool, str]:
         return False, "completed 必须是布尔值"
     if "priority" in data and data["priority"] not in VALID_PRIORITIES:
         return False, f"priority 必须是 {VALID_PRIORITIES} 之一"
+    if "notes" in data:
+        n = data["notes"]
+        if n is not None and not isinstance(n, str):
+            return False, "notes 必须是字符串或 null"
+        if n and len(n) > 2000:
+            return False, "notes 过长（最大 2000 字符）"
+    if "tags" in data:
+        t = data["tags"]
+        if not isinstance(t, list):
+            return False, "tags 必须是字符串数组"
+        if len(t) > 10:
+            return False, "tags 最多 10 个"
+        for tag in t:
+            if not isinstance(tag, str) or len(tag) > 30:
+                return False, "每个 tag 必须是不超过 30 字符的字符串"
     if "due_date" in data:
         d = data["due_date"]
         if d is not None:
@@ -58,9 +137,7 @@ def validate_payload(data: Dict[str, Any]) -> tuple[bool, str]:
                 return False, "due_date 格式错误，应为 YYYY-MM-DD"
     return True, ""
 
-
-# ── 静态文件 ────────────────────────────────────────────
-
+# ========== 静态文件 ==========
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
@@ -69,14 +146,11 @@ def index():
 def serve_static(path):
     return send_from_directory(".", path)
 
-
-# ── API ─────────────────────────────────────────────────
-
+# ========== API ==========
 @app.route("/api/todos", methods=["GET"])
 def get_todos():
     logger.info("GET /api/todos  count=%d", len(todos))
     return jsonify(todos)
-
 
 @app.route("/api/todos", methods=["POST"])
 def add_todo():
@@ -87,26 +161,29 @@ def add_todo():
     if "text" not in data:
         return jsonify({"error": "缺少 text 字段"}), 400
 
+    raw_tags = data.get("tags", [])
+    clean_tags = [str(tag).strip() for tag in raw_tags if str(tag).strip()]
     todo = {
         "id":        get_next_id(),
         "text":      data["text"].strip(),
         "completed": False,
         "priority":  data.get("priority", "mid"),
         "due_date":  data.get("due_date", None),
+        "notes":     (data.get("notes") or "").strip(),
+        "tags":      clean_tags,
+        "steps":     [],
     }
     todos.append(todo)
+    save_todos(todos)          # ← 保存到文件
     logger.info("POST /api/todos  id=%d", todo["id"])
     return jsonify(todo), 201
 
-
 @app.route("/api/todos/search", methods=["GET"])
 def search_todos():
-    # 必须在 /<int:todo_id> 路由之前注册
     q = request.args.get("q", "").strip().lower()
     results = todos if not q else [t for t in todos if q in t["text"].lower()]
     logger.info("GET /api/todos/search  q=%r  found=%d", q, len(results))
     return jsonify(results)
-
 
 @app.route("/api/todos/export", methods=["GET"])
 def export_todos():
@@ -161,6 +238,41 @@ def export_todos():
     logger.info("GET /api/todos/export  count=%d", len(todos))
     return resp
 
+@app.route("/api/todos/reorder", methods=["PUT"])
+def reorder_todos():
+    """按客户端传入的 id 列表重新排列 todos"""
+    data = request.get_json(silent=True) or {}
+    id_order = data.get("order", [])
+    if not isinstance(id_order, list):
+        return jsonify({"error": "order 必须是 id 数组"}), 400
+    id_map = {t["id"]: t for t in todos}
+    reordered = [id_map[i] for i in id_order if i in id_map]
+    # 补上未在列表中的（安全保底）
+    present = set(id_order)
+    for t in todos:
+        if t["id"] not in present:
+            reordered.append(t)
+    todos[:] = reordered
+    save_todos(todos)
+    logger.info("PUT /api/todos/reorder  count=%d", len(todos))
+    return jsonify({"message": "排序已保存"})
+
+@app.route("/api/stats", methods=["GET"])
+def get_stats():
+    """返回统计摘要"""
+    import time as _t
+    today = _t.strftime("%Y-%m-%d")
+    total   = len(todos)
+    done    = sum(1 for t in todos if t["completed"])
+    overdue = sum(1 for t in todos if t.get("due_date") and not t["completed"] and t["due_date"] < today)
+    all_tags = {}
+    for t in todos:
+        for tag in (t.get("tags") or []):
+            all_tags[tag] = all_tags.get(tag, 0) + 1
+    return jsonify({
+        "total": total, "done": done, "pending": total - done,
+        "overdue": overdue, "tags": all_tags
+    })
 
 @app.route("/api/todos/<int:todo_id>", methods=["PUT"])
 def update_todo(todo_id):
@@ -177,25 +289,99 @@ def update_todo(todo_id):
     if "completed" in data: todo["completed"] = data["completed"]
     if "priority"  in data: todo["priority"]  = data["priority"]
     if "due_date"  in data: todo["due_date"]  = data["due_date"]
+    if "notes"     in data: todo["notes"]     = (data["notes"] or "").strip()
+    if "tags"      in data:
+        todo["tags"] = [str(t).strip() for t in data["tags"] if str(t).strip()]
 
+    save_todos(todos)          # ← 保存到文件
     logger.info("PUT /api/todos/%d  %s", todo_id, todo)
     return jsonify(todo)
 
+# ========== 步骤 API ==========
+@app.route("/api/todos/<int:todo_id>/steps", methods=["POST"])
+def add_step(todo_id):
+    todo = find_todo(todo_id)
+    if not todo:
+        return jsonify({"error": "待办事项未找到"}), 404
+
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "步骤内容不能为空"}), 400
+    if len(text) > 200:
+        return jsonify({"error": "步骤内容过长（最大 200 字符）"}), 400
+
+    due = data.get("due_date")
+    ok, msg = validate_due_date(due)
+    if not ok:
+        return jsonify({"error": msg}), 400
+
+    if "steps" not in todo:
+        todo["steps"] = []
+    step = {
+        "id":        get_next_step_id(todo),
+        "text":      text,
+        "completed": False,
+        "due_date":  due,
+    }
+    todo["steps"].append(step)
+    save_todos(todos)
+    logger.info("POST /api/todos/%d/steps  step_id=%d", todo_id, step["id"])
+    return jsonify(step), 201
+
+@app.route("/api/todos/<int:todo_id>/steps/<int:step_id>", methods=["PUT"])
+def update_step(todo_id, step_id):
+    todo = find_todo(todo_id)
+    if not todo:
+        return jsonify({"error": "待办事项未找到"}), 404
+    step = next((s for s in todo.get("steps", []) if s["id"] == step_id), None)
+    if not step:
+        return jsonify({"error": "步骤未找到"}), 404
+
+    data = request.get_json(silent=True) or {}
+    if "text" in data:
+        t = (data["text"] or "").strip()
+        if not t:
+            return jsonify({"error": "步骤内容不能为空"}), 400
+        if len(t) > 200:
+            return jsonify({"error": "步骤内容过长"}), 400
+        step["text"] = t
+    if "completed" in data:
+        step["completed"] = bool(data["completed"])
+    if "due_date" in data:
+        ok, msg = validate_due_date(data["due_date"])
+        if not ok:
+            return jsonify({"error": msg}), 400
+        step["due_date"] = data["due_date"]
+
+    save_todos(todos)
+    logger.info("PUT /api/todos/%d/steps/%d", todo_id, step_id)
+    return jsonify(step)
+
+@app.route("/api/todos/<int:todo_id>/steps/<int:step_id>", methods=["DELETE"])
+def delete_step(todo_id, step_id):
+    todo = find_todo(todo_id)
+    if not todo:
+        return jsonify({"error": "待办事项未找到"}), 404
+    before = len(todo.get("steps", []))
+    todo["steps"] = [s for s in todo.get("steps", []) if s["id"] != step_id]
+    if len(todo["steps"]) == before:
+        return jsonify({"error": "步骤未找到"}), 404
+    save_todos(todos)
+    logger.info("DELETE /api/todos/%d/steps/%d", todo_id, step_id)
+    return jsonify({"message": "步骤已删除"})
 
 @app.route("/api/todos/<int:todo_id>", methods=["DELETE"])
 def delete_todo(todo_id):
-    # 注意：用 target 避免与列表推导变量同名（原代码 bug）
     target = find_todo(todo_id)
     if not target:
         return jsonify({"error": "待办事项未找到"}), 404
 
     todos[:] = [t for t in todos if t["id"] != todo_id]
+    save_todos(todos)          # ← 保存到文件
     logger.info("DELETE /api/todos/%d", todo_id)
     return jsonify({"message": "删除成功", "deleted_todo": target})
 
-
-# ── 启动 ────────────────────────────────────────────────
-
+# ========== 启动 ==========
 if __name__ == '__main__':
-    # 2. 用FlaskUI包装应用并运行，它会自动打开一个桌面窗口
-    FlaskUI(app=app, server="flask", width=800, height=600).run()
+    FlaskUI(app=app, server="flask", width=1000, height=700).run()
