@@ -347,6 +347,111 @@
     }
     .tag-chip:hover, .tag-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+    /* ── AI 建议步骤面板 ── */
+    .ai-suggest-panel {
+      background: var(--surface2); border: 1.5px solid var(--border);
+      border-top: 2px solid var(--accent2);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 16px;
+      animation: slideDown .2s ease; display: none;
+    }
+    .ai-suggest-panel.show { display: block; }
+    .ai-suggest-title {
+      font-family: 'JetBrains Mono', monospace; font-size: .73rem;
+      color: var(--text2); margin-bottom: 10px;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .ai-suggest-title strong { color: var(--accent2); }
+    .ai-step-option {
+      display: flex; align-items: center; gap: 8px; padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .ai-step-option:last-of-type { border-bottom: none; }
+    .ai-step-cb {
+      width: 14px; height: 14px; accent-color: var(--accent2);
+      cursor: pointer; flex-shrink: 0;
+    }
+    .ai-step-text-input {
+      flex: 1; font-family: 'Noto Serif SC', serif; font-size: .85rem;
+      color: var(--text); background: transparent; border: none;
+      padding: 2px 5px; border-radius: 3px; transition: background .15s, outline .15s;
+    }
+    .ai-step-text-input:focus { outline: 1.5px solid var(--accent2); background: var(--surface); }
+    .ai-suggest-actions {
+      margin-top: 8px; display: flex; gap: 8px; align-items: center;
+    }
+    .ai-loading {
+      font-family: 'JetBrains Mono', monospace; font-size: .8rem;
+      color: var(--text2); padding: 8px 0; text-align: center;
+    }
+    @keyframes aiSpin {
+      to { transform: rotate(360deg); }
+    }
+    .ai-spinner {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid var(--border); border-top-color: var(--accent2);
+      border-radius: 50%; animation: aiSpin .7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+
+    /* ── 设置弹窗 ── */
+    .settings-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.5);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 200; animation: fadeOverlay .15s ease;
+    }
+    .settings-modal {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 24px 28px; width: 460px; max-width: 96vw;
+      box-shadow: 0 12px 48px rgba(0,0,0,.25);
+    }
+    .settings-modal h3 { font-size: 1rem; margin-bottom: 20px; color: var(--text); }
+    .settings-section {
+      font-family: 'JetBrains Mono', monospace; font-size: .68rem;
+      color: var(--text2); text-transform: uppercase; letter-spacing: .08em;
+      margin-bottom: 10px; margin-top: 16px; padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-section:first-of-type { margin-top: 0; }
+    .settings-row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    }
+    .settings-row label {
+      font-family: 'JetBrains Mono', monospace; font-size: .73rem;
+      color: var(--text2); width: 76px; flex-shrink: 0;
+    }
+    .settings-row input[type="text"],
+    .settings-row input[type="password"] {
+      flex: 1; font-size: .85rem; padding: 7px 10px;
+    }
+    .settings-hint {
+      font-family: 'JetBrains Mono', monospace; font-size: .68rem;
+      color: var(--text2); margin: -4px 0 10px 86px; line-height: 1.5;
+    }
+    .toggle-row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    }
+    .toggle-row label {
+      font-family: 'JetBrains Mono', monospace; font-size: .8rem; color: var(--text);
+    }
+    .toggle-switch {
+      position: relative; width: 38px; height: 20px; flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: var(--border);
+      border-radius: 20px; cursor: pointer; transition: background .2s;
+    }
+    .toggle-slider::before {
+      content: ''; position: absolute; width: 14px; height: 14px;
+      left: 3px; top: 3px; background: #fff; border-radius: 50%;
+      transition: transform .2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+    .settings-actions {
+      display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end;
+    }
+
     /* ── 排序栏 ── */
     .sort-bar {
       display: flex; align-items: center; gap: 6px; margin-bottom: 14px;
@@ -558,6 +663,7 @@
       </div>
       <button class="btn-icon" id="themeBtn" title="切换主题">🌙</button>
       <button class="btn-icon" id="helpBtn" title="键盘快捷键 (?)">⌨</button>
+      <button class="btn-icon" id="settingsBtn" title="设置">⚙</button>
       <button class="btn-ghost" id="exportBtn">导出</button>
     </div>
   </header>
@@ -569,6 +675,7 @@
   <div class="add-card">
     <div class="add-main-row">
       <input type="text" id="addInput" placeholder="输入新的待办事项…" autocomplete="off" />
+      <button class="btn-ghost" id="aiSuggestBtn" title="AI 自动生成执行步骤" style="display:none;flex-shrink:0">✨ AI 建议</button>
       <button class="btn-primary" id="addBtn">添加</button>
     </div>
     <div class="add-meta-row">
@@ -596,6 +703,9 @@
       <textarea class="notes-textarea" id="notesInput" placeholder="添加备注说明…" maxlength="2000"></textarea>
     </div>
   </div>
+
+  <!-- AI 建议步骤面板 -->
+  <div class="ai-suggest-panel" id="aiSuggestPanel"></div>
 
   <!-- 工具栏 -->
   <div class="toolbar">
@@ -666,6 +776,8 @@ let sortAsc     = true;
 let tagFilter   = '';
 const pendingDeletes = new Map(); // id -> { todo, timer }
 const openSteps = new Set();      // 已展开"分步走"面板的 todo id
+let appSettings = { ai_enabled: false, ai_base_url: '', ai_api_key: '', ai_model: '' };
+let pendingAiSteps = []; // [{ text, selected }]
 
 /* ── DOM ─────────────────────────────────────────────── */
 const $         = id => document.getElementById(id);
@@ -1370,6 +1482,8 @@ async function addTodo() {
   document.getElementById('tagsInput').value = '';
   document.getElementById('notesRow').classList.remove('open');
   document.getElementById('toggleNotesBtn').textContent = '+ 备注';
+  const aiStepsToAdd = pendingAiSteps.filter(s => s.selected && s.text.trim());
+  clearAiPanel();
   render();
 
   try {
@@ -1383,6 +1497,27 @@ async function addTodo() {
     // 替换临时条目为服务器返回的真实数据
     const idx = allTodos.findIndex(t => t.id === tempId);
     if (idx >= 0) allTodos[idx] = { priority: selectedPri, due_date: due, notes, tags, ...real };
+
+    // ── 附加 AI 建议步骤 ──
+    if (aiStepsToAdd.length > 0) {
+      const todo = allTodos.find(t => t.id === real.id);
+      for (const step of aiStepsToAdd) {
+        try {
+          const sr = await fetch(`${API}/${real.id}/steps`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: step.text.trim() })
+          });
+          if (sr.ok && todo) {
+            const newStep = await sr.json();
+            if (!todo.steps) todo.steps = [];
+            todo.steps.push(newStep);
+          }
+        } catch {}
+      }
+      openSteps.add(real.id);
+    }
+
     render();
     notify('添加成功！', 'success', 2000);
     addInput.focus();
@@ -1510,6 +1645,171 @@ async function exportTodos() {
   } catch (err) { notify('导出失败：' + err.message); }
 }
 
+/* ── 设置 ────────────────────────────────────────────── */
+async function loadAppSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    if (res.ok) {
+      appSettings = await res.json();
+      updateAiButtonVisibility();
+    }
+  } catch {}
+}
+
+function updateAiButtonVisibility() {
+  const btn = $('aiSuggestBtn');
+  if (btn) btn.style.display = appSettings.ai_enabled ? '' : 'none';
+}
+
+function openSettings() {
+  const overlay = document.createElement('div');
+  overlay.className = 'settings-overlay';
+  overlay.innerHTML = `
+    <div class="settings-modal">
+      <h3>⚙ 设置</h3>
+      <div class="settings-section">AI 步骤建议</div>
+      <div class="toggle-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="stgAiEnabled" ${appSettings.ai_enabled ? 'checked' : ''} />
+          <span class="toggle-slider"></span>
+        </label>
+        <label for="stgAiEnabled">启用 AI 步骤建议</label>
+      </div>
+      <div class="settings-row">
+        <label>API 地址</label>
+        <input type="text" id="stgBaseUrl" value="${appSettings.ai_base_url || 'https://api.openai.com/v1'}" placeholder="https://api.openai.com/v1" />
+      </div>
+      <div class="settings-hint">兼容 OpenAI 格式的接口地址，可填第三方代理或本地模型地址</div>
+      <div class="settings-row">
+        <label>API Key</label>
+        <input type="password" id="stgApiKey" value="${appSettings.ai_api_key || ''}" placeholder="sk-…" autocomplete="off" />
+      </div>
+      <div class="settings-row">
+        <label>模型名称</label>
+        <input type="text" id="stgModel" value="${appSettings.ai_model || 'gpt-3.5-turbo'}" placeholder="gpt-3.5-turbo" />
+      </div>
+      <div class="settings-hint">例如：gpt-4o、claude-3-5-sonnet-20241022、deepseek-chat 等</div>
+      <div class="settings-actions">
+        <button class="btn-ghost" id="stgCancelBtn">取消</button>
+        <button class="btn-primary" id="stgSaveBtn">保存</button>
+      </div>
+    </div>`;
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('#stgCancelBtn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#stgSaveBtn').addEventListener('click', async () => {
+    const payload = {
+      ai_enabled:  overlay.querySelector('#stgAiEnabled').checked,
+      ai_base_url: overlay.querySelector('#stgBaseUrl').value.trim(),
+      ai_api_key:  overlay.querySelector('#stgApiKey').value.trim(),
+      ai_model:    overlay.querySelector('#stgModel').value.trim(),
+    };
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      appSettings = { ...appSettings, ...payload };
+      updateAiButtonVisibility();
+      overlay.remove();
+      notify('设置已保存', 'success', 2000);
+    } catch (err) {
+      notify('保存设置失败：' + err.message);
+    }
+  });
+
+  document.body.appendChild(overlay);
+  overlay.querySelector('#stgBaseUrl').focus();
+}
+
+/* ── AI 建议步骤 ─────────────────────────────────────── */
+async function aiSuggestSteps() {
+  const goal = addInput.value.trim();
+  if (!goal) { notify('请先输入目标内容', 'warning'); addInput.focus(); return; }
+
+  const panel = $('aiSuggestPanel');
+  panel.classList.add('show');
+  panel.innerHTML = '<div class="ai-loading"><span class="ai-spinner"></span>AI 正在分析目标，生成执行步骤…</div>';
+  $('aiSuggestBtn').disabled = true;
+
+  try {
+    const res = await fetch('/api/ai/suggest-steps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    pendingAiSteps = data.steps.map(text => ({ text, selected: true }));
+    renderAiSuggestions();
+  } catch (err) {
+    panel.innerHTML = `<div class="ai-loading" style="color:var(--pri-high)">⚠ ${err.message}</div>`;
+  } finally {
+    $('aiSuggestBtn').disabled = false;
+  }
+}
+
+function renderAiSuggestions() {
+  const panel = $('aiSuggestPanel');
+  if (!pendingAiSteps.length) { panel.classList.remove('show'); return; }
+
+  panel.innerHTML = '';
+  const title = document.createElement('div');
+  title.className = 'ai-suggest-title';
+  title.innerHTML = '<strong>✨ AI 建议步骤</strong><span>勾选后将随目标一起添加，可直接编辑文字</span>';
+  panel.appendChild(title);
+
+  pendingAiSteps.forEach((step, i) => {
+    const row = document.createElement('div');
+    row.className = 'ai-step-option';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'ai-step-cb'; cb.checked = step.selected;
+    cb.addEventListener('change', () => { pendingAiSteps[i].selected = cb.checked; });
+
+    const txt = document.createElement('input');
+    txt.type = 'text'; txt.className = 'ai-step-text-input'; txt.value = step.text;
+    txt.maxLength = 200;
+    txt.addEventListener('input', () => { pendingAiSteps[i].text = txt.value; });
+
+    row.append(cb, txt);
+    panel.appendChild(row);
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'ai-suggest-actions';
+
+  const selectAll = document.createElement('button');
+  selectAll.className = 'btn-ghost';
+  selectAll.style.cssText = 'padding:4px 10px;font-size:.72rem;border-radius:12px';
+  selectAll.textContent = '全选';
+  selectAll.addEventListener('click', () => {
+    pendingAiSteps.forEach(s => s.selected = true);
+    renderAiSuggestions();
+  });
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'btn-ghost';
+  clearBtn.style.cssText = 'padding:4px 10px;font-size:.72rem;border-radius:12px';
+  clearBtn.textContent = '清除';
+  clearBtn.addEventListener('click', () => {
+    pendingAiSteps = [];
+    panel.classList.remove('show');
+  });
+
+  actions.append(selectAll, clearBtn);
+  panel.appendChild(actions);
+}
+
+function clearAiPanel() {
+  pendingAiSteps = [];
+  const panel = $('aiSuggestPanel');
+  if (panel) panel.classList.remove('show');
+}
+
 /* ── 主题 ─────────────────────────────────────────────── */
 function applyTheme(dark) {
   document.body.classList.toggle('dark', dark);
@@ -1564,6 +1864,8 @@ function toggleTheme() {
   $('clearDoneBtn').addEventListener('click', clearCompleted);
   $('exportBtn').addEventListener('click', exportTodos);
   $('themeBtn').addEventListener('click', toggleTheme);
+  $('settingsBtn').addEventListener('click', openSettings);
+  $('aiSuggestBtn').addEventListener('click', aiSuggestSteps);
 
   // 批量操作
   $('batchDone').addEventListener('click', async () => {
@@ -1642,8 +1944,8 @@ function toggleTheme() {
       e.preventDefault(); searchInput.focus(); searchInput.select();
     }
     if (e.key === 'Escape') {
-      // 关闭帮助弹窗
-      const overlay = document.querySelector('.shortcuts-overlay');
+      // 关闭弹窗（帮助 / 设置）
+      const overlay = document.querySelector('.shortcuts-overlay, .settings-overlay');
       if (overlay) { overlay.remove(); return; }
       if (selected.size) clearSelection();
       else { addInput.value = ''; addInput.focus(); }
@@ -1657,6 +1959,7 @@ function toggleTheme() {
 
   addInput.focus();
   loadTodos();
+  loadAppSettings();
 })();
 </script>
 </body>

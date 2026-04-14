@@ -98,6 +98,34 @@ def validate_due_date(d) -> tuple[bool, str]:
 
 VALID_PRIORITIES = {"high", "mid", "low"}
 
+# ========== 设置持久化 ==========
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+
+def load_settings() -> Dict[str, Any]:
+    """加载应用设置"""
+    ensure_data_dir()
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"加载设置失败: {e}")
+    return {
+        "ai_enabled": False,
+        "ai_base_url": "https://api.openai.com/v1",
+        "ai_api_key": "",
+        "ai_model": "gpt-3.5-turbo"
+    }
+
+def save_settings(data: Dict[str, Any]):
+    """保存应用设置"""
+    ensure_data_dir()
+    try:
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"保存设置失败: {e}")
+
 def validate_payload(data: Dict[str, Any]) -> tuple[bool, str]:
     if not data:
         return False, "请求体不能为空"
@@ -381,6 +409,96 @@ def delete_todo(todo_id):
     save_todos(todos)          # ← 保存到文件
     logger.info("DELETE /api/todos/%d", todo_id)
     return jsonify({"message": "删除成功", "deleted_todo": target})
+
+# ========== 设置 API ==========
+@app.route("/api/settings", methods=["GET"])
+def get_settings():
+    s = load_settings()
+    result = dict(s)
+    # 脱敏处理 API Key
+    key = result.get("ai_api_key", "")
+    if key:
+        result["ai_api_key"] = key[:4] + "****" + key[-4:] if len(key) > 8 else "****"
+    return jsonify(result)
+
+@app.route("/api/settings", methods=["PUT"])
+def update_settings():
+    data = request.get_json(silent=True) or {}
+    s = load_settings()
+    if "ai_enabled" in data:
+        s["ai_enabled"] = bool(data["ai_enabled"])
+    if "ai_base_url" in data:
+        s["ai_base_url"] = str(data["ai_base_url"]).strip()
+    if "ai_api_key" in data:
+        new_key = str(data["ai_api_key"]).strip()
+        # 若前端传来脱敏占位符，则保留原 key 不覆盖
+        if new_key and "****" not in new_key:
+            s["ai_api_key"] = new_key
+    if "ai_model" in data:
+        s["ai_model"] = str(data["ai_model"]).strip()
+    save_settings(s)
+    logger.info("PUT /api/settings  ai_enabled=%s", s.get("ai_enabled"))
+    return jsonify({"message": "设置已保存"})
+
+# ========== AI 建议步骤 API ==========
+@app.route("/api/ai/suggest-steps", methods=["POST"])
+def suggest_steps():
+    import re
+    s = load_settings()
+    if not s.get("ai_enabled"):
+        return jsonify({"error": "AI 功能未启用，请先在设置中开启并配置 API"}), 400
+    if not s.get("ai_api_key"):
+        return jsonify({"error": "未配置 API Key，请在设置中填写"}), 400
+
+    data = request.get_json(silent=True) or {}
+    goal = (data.get("goal") or "").strip()
+    if not goal:
+        return jsonify({"error": "目标内容不能为空"}), 400
+
+    try:
+        import urllib.request
+        import urllib.error
+
+        base_url = s.get("ai_base_url", "https://api.openai.com/v1").rstrip("/")
+        model    = s.get("ai_model", "gpt-3.5-turbo")
+        api_key  = s.get("ai_api_key", "")
+
+        prompt = (
+            f"请为以下目标生成不超过5个具体的执行步骤，每个步骤简洁清晰（20字以内）。\n"
+            f"只返回步骤列表，每行一个步骤，不要编号，不要解释，不要多余内容。\n\n"
+            f"目标：{goal}"
+        )
+
+        payload = json.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 300,
+            "temperature": 0.7
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            f"{base_url}/chat/completions",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result_json = json.loads(resp.read().decode("utf-8"))
+
+        content = result_json["choices"][0]["message"]["content"].strip()
+        steps = [line.strip() for line in content.split("\n") if line.strip()]
+        steps = [re.sub(r"^[\d\.\-\*\•、]\s*", "", st).strip() for st in steps]
+        steps = [st for st in steps if st][:5]
+
+        logger.info("POST /api/ai/suggest-steps  goal=%r  steps=%d", goal, len(steps))
+        return jsonify({"steps": steps})
+
+    except Exception as e:
+        logger.error(f"AI 建议步骤失败: {e}")
+        return jsonify({"error": f"AI 请求失败：{str(e)}"}), 500
 
 # ========== 启动 ==========
 if __name__ == '__main__':
