@@ -5,8 +5,10 @@ import logging
 import io
 import time
 import json
+import atexit
 from typing import List, Dict, Any, Optional
 from flaskwebgui import FlaskUI
+import analytics
 
 app = Flask(__name__)
 CORS(app)
@@ -75,6 +77,11 @@ def save_todos(data: List[Dict[str, Any]]):
 # 初始化内存数据（从文件加载）
 todos: List[Dict[str, Any]] = load_todos()
 
+# ========== 分析埋点初始化 ==========
+analytics.init_db()
+analytics.start_session()
+atexit.register(analytics.end_session)
+
 # ========== 辅助函数 ==========
 def get_next_id() -> int:
     return max((t["id"] for t in todos), default=0) + 1
@@ -114,7 +121,14 @@ def load_settings() -> Dict[str, Any]:
         "ai_enabled": False,
         "ai_base_url": "https://api.openai.com/v1",
         "ai_api_key": "",
-        "ai_model": "gpt-3.5-turbo"
+        "ai_model": "gpt-3.5-turbo",
+        "mysql": {
+            "host": "",
+            "port": 3306,
+            "user": "root",
+            "password": "",
+            "database": "todo_analytics"
+        }
     }
 
 def save_settings(data: Dict[str, Any]):
@@ -203,6 +217,12 @@ def add_todo():
     }
     todos.append(todo)
     save_todos(todos)          # ← 保存到文件
+    analytics.on_todo_created(todo)
+    analytics.record_event("todo_created", todo["id"], {
+        "priority": todo["priority"],
+        "has_due_date": bool(todo["due_date"]),
+        "tag_count": len(todo["tags"]),
+    })
     logger.info("POST /api/todos  id=%d", todo["id"])
     return jsonify(todo), 201
 
@@ -210,6 +230,8 @@ def add_todo():
 def search_todos():
     q = request.args.get("q", "").strip().lower()
     results = todos if not q else [t for t in todos if q in t["text"].lower()]
+    if q:
+        analytics.record_event("search", extra={"keyword_len": len(q), "results": len(results)})
     logger.info("GET /api/todos/search  q=%r  found=%d", q, len(results))
     return jsonify(results)
 
@@ -263,6 +285,7 @@ def export_todos():
     resp.headers["Content-Disposition"] = (
         f'attachment; filename="todos_{time.strftime("%Y%m%d_%H%M%S")}.xlsx"'
     )
+    analytics.record_event("export", extra={"count": len(todos)})
     logger.info("GET /api/todos/export  count=%d", len(todos))
     return resp
 
@@ -282,6 +305,7 @@ def reorder_todos():
             reordered.append(t)
     todos[:] = reordered
     save_todos(todos)
+    analytics.record_event("reorder", extra={"count": len(todos)})
     logger.info("PUT /api/todos/reorder  count=%d", len(todos))
     return jsonify({"message": "排序已保存"})
 
@@ -313,6 +337,7 @@ def update_todo(todo_id):
     if not todo:
         return jsonify({"error": "待办事项未找到"}), 404
 
+    prev_completed = todo.get("completed", False)
     if "text"      in data: todo["text"]      = data["text"].strip()
     if "completed" in data: todo["completed"] = data["completed"]
     if "priority"  in data: todo["priority"]  = data["priority"]
@@ -322,6 +347,15 @@ def update_todo(todo_id):
         todo["tags"] = [str(t).strip() for t in data["tags"] if str(t).strip()]
 
     save_todos(todos)          # ← 保存到文件
+    analytics.on_todo_updated(todo, prev_completed)
+    if todo.get("completed") and not prev_completed:
+        analytics.record_event("todo_completed", todo_id, {
+            "priority": todo.get("priority"),
+            "has_due_date": bool(todo.get("due_date")),
+            "step_count": len(todo.get("steps", [])),
+        })
+    elif not todo.get("completed") and prev_completed:
+        analytics.record_event("todo_uncompleted", todo_id)
     logger.info("PUT /api/todos/%d  %s", todo_id, todo)
     return jsonify(todo)
 
@@ -375,7 +409,10 @@ def update_step(todo_id, step_id):
             return jsonify({"error": "步骤内容过长"}), 400
         step["text"] = t
     if "completed" in data:
+        newly_done = bool(data["completed"]) and not step.get("completed")
         step["completed"] = bool(data["completed"])
+        if newly_done:
+            analytics.record_event("step_completed", todo_id, {"step_id": step_id})
     if "due_date" in data:
         ok, msg = validate_due_date(data["due_date"])
         if not ok:
@@ -407,6 +444,12 @@ def delete_todo(todo_id):
 
     todos[:] = [t for t in todos if t["id"] != todo_id]
     save_todos(todos)          # ← 保存到文件
+    analytics.on_todo_deleted(target)
+    analytics.record_event("todo_deleted", todo_id, {
+        "was_completed": target.get("completed"),
+        "priority": target.get("priority"),
+        "had_steps": len(target.get("steps", [])) > 0,
+    })
     logger.info("DELETE /api/todos/%d", todo_id)
     return jsonify({"message": "删除成功", "deleted_todo": target})
 
@@ -436,7 +479,19 @@ def update_settings():
             s["ai_api_key"] = new_key
     if "ai_model" in data:
         s["ai_model"] = str(data["ai_model"]).strip()
+    if "mysql" in data and isinstance(data["mysql"], dict):
+        m = data["mysql"]
+        s.setdefault("mysql", {})
+        for key in ("host", "user", "password", "database"):
+            if key in m:
+                s["mysql"][key] = str(m[key]).strip()
+        if "port" in m:
+            s["mysql"]["port"] = int(m["port"])
     save_settings(s)
+    # MySQL 配置变化时重置连接，让下次自动重连
+    analytics._conn = None
+    analytics._mysql_available = None
+    analytics.init_db()
     logger.info("PUT /api/settings  ai_enabled=%s", s.get("ai_enabled"))
     return jsonify({"message": "设置已保存"})
 
@@ -493,6 +548,11 @@ def suggest_steps():
         steps = [re.sub(r"^[\d\.\-\*\•、]\s*", "", st).strip() for st in steps]
         steps = [st for st in steps if st][:5]
 
+        # 尝试从请求中获取 todo_id 用于关联分析
+        todo_id_for_ai = data.get("todo_id")
+        analytics.record_event("ai_suggest_used", todo_id_for_ai, {"steps_returned": len(steps)})
+        if todo_id_for_ai:
+            analytics.on_ai_steps_used(todo_id_for_ai)
         logger.info("POST /api/ai/suggest-steps  goal=%r  steps=%d", goal, len(steps))
         return jsonify({"steps": steps})
 
