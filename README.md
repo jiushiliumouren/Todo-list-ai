@@ -1,4 +1,3 @@
-```markdown
 # 轻清单 · 桌面待办
 
 一个极简、优雅的桌面待办事项应用，**双击即用，无需安装 Python 环境**。  
@@ -7,25 +6,30 @@
 ## ✨ 功能亮点
 
 - ✅ 增 / 删 / 改（双击编辑）待办事项
-- ✅ 标记完成状态，实时统计（总计、已完成、未完成）
+- ✅ 标记完成状态，实时统计（总计、已完成、未完成、逾期）
+- ✅ 优先级（高 / 中 / 低）、截止日期、备注、标签
+- ✅ **分步走**：为每条待办拆解子步骤，逐一勾选推进
+- ✅ **AI 建议步骤**：一键调用 AI 为目标生成执行步骤（支持 OpenAI 兼容接口）
 - ✅ 搜索过滤待办事项
+- ✅ 拖拽排序，手动调整任务顺序
 - ✅ 一键导出为 Excel（含优先级、截止日期）
 - ✅ 深色 / 浅色主题切换，偏好自动保存
 - ✅ 本地数据持久化（自动保存到文件，重启不丢失）
 - ✅ 键盘快捷键（Ctrl+Enter 添加、Esc 清空输入、F5 刷新）
-- ✅ 响应式界面，支持移动端浏览器访问
+- ✅ **行为埋点分析**：可选接入 MySQL，记录会话、操作事件、任务生命周期
 
 ## 📦 技术栈
 
-- **后端**：Python Flask + Flask-CORS
-- **前端**：原生 HTML/CSS/JavaScript（无框架）
-- **桌面封装**：FlaskWebGUI + PyInstaller（生成独立 .exe）
-- **数据存储**：JSON 文件（位于用户目录 `~/.todo_app/todos.json`）
-
+| 层次 | 技术 |
+|------|------|
+| 后端 | Python Flask + Flask-CORS |
+| 前端 | 原生 HTML / CSS / JavaScript（无框架）|
+| 桌面封装 | FlaskWebGUI + PyInstaller（独立 .exe）|
+| 数据存储 | JSON 文件（`~/.todo_app/todos.json`）|
+| 设置持久化 | JSON 文件（`~/.todo_app/settings.json`）|
+| 行为分析（可选）| MySQL + pymysql（后台异步写入，不影响主流程）|
 
 ## 🚀 快速体验（开发模式）
-
-如果你有 Python 环境，可以直接运行源码：
 
 ```bash
 # 1. 安装依赖
@@ -35,64 +39,112 @@ pip install -r requirements.txt
 python app.py
 ```
 
-如需在浏览器中调试，可临时修改 `app.py` 末尾启动方式为 `app.run(debug=True)`。
+如需在浏览器中调试，可临时将 `app.py` 末尾改为 `app.run(debug=True)`。
 
-## 📦 打包为独立 .exe 文件（单文件版）
+## 📦 打包为独立 .exe
 
-我们已经配置好 `app.spec`，只需执行：
+已配置好 `app.spec`，执行：
 
 ```bash
 pyinstaller app.spec
 ```
 
-生成的 `dist/轻清单.exe` 即为独立可执行文件，**可以复制到任何 Windows 电脑直接运行**，无需安装 Python 或任何依赖。
+生成的 `dist/干！.exe` 即为独立可执行文件，可复制到任意 Windows 电脑直接运行，无需安装 Python 或任何依赖。
 
 > 提示：首次打包若提示缺少 `pathlib` 包，执行 `pip uninstall pathlib` 即可。
 
+## ⚙️ 设置说明
+
+应用内置设置面板，支持以下配置（保存于 `~/.todo_app/settings.json`）：
+
+**AI 功能**
+- `ai_enabled`：是否启用 AI 建议步骤
+- `ai_base_url`：API 地址（默认 `https://api.openai.com/v1`，支持任意 OpenAI 兼容接口）
+- `ai_api_key`：API Key（界面显示脱敏，修改时重新填写）
+- `ai_model`：模型名称（如 `gpt-3.5-turbo`、`gpt-4o` 等）
+
+**MySQL 埋点（可选）**
+- 配置 `host / port / user / password / database` 后自动建表并记录分析数据
+- 未配置或连接失败时静默跳过，不影响正常使用
+
 ## 🔌 API 接口说明
 
-| 方法   | 路径                      | 说明                     |
-|--------|---------------------------|--------------------------|
-| GET    | `/api/todos`              | 获取全部待办             |
-| POST   | `/api/todos`              | 添加待办                 |
-| PUT    | `/api/todos/<id>`         | 更新待办（文本/完成状态/优先级/截止日期） |
-| DELETE | `/api/todos/<id>`         | 删除待办                 |
-| GET    | `/api/todos/search?q=关键词` | 搜索待办               |
-| GET    | `/api/todos/export`       | 导出 Excel 文件          |
+### 待办事项
 
-请求体示例（POST/PUT）：
+| 方法   | 路径                              | 说明                                        |
+|--------|-----------------------------------|---------------------------------------------|
+| GET    | `/api/todos`                      | 获取全部待办                                |
+| POST   | `/api/todos`                      | 添加待办                                    |
+| PUT    | `/api/todos/<id>`                 | 更新待办（文本 / 完成 / 优先级 / 截止日期 / 备注 / 标签）|
+| DELETE | `/api/todos/<id>`                 | 删除待办                                    |
+| GET    | `/api/todos/search?q=关键词`      | 搜索待办                                    |
+| GET    | `/api/todos/export`               | 导出 Excel 文件                             |
+| PUT    | `/api/todos/reorder`              | 按指定顺序重排待办                          |
+| GET    | `/api/stats`                      | 获取统计摘要（总数、已完成、逾期、标签分布）|
+
+### 子步骤
+
+| 方法   | 路径                                         | 说明             |
+|--------|----------------------------------------------|------------------|
+| POST   | `/api/todos/<id>/steps`                      | 添加子步骤       |
+| PUT    | `/api/todos/<id>/steps/<step_id>`            | 更新子步骤       |
+| DELETE | `/api/todos/<id>/steps/<step_id>`            | 删除子步骤       |
+
+### 设置 & AI
+
+| 方法   | 路径                       | 说明                         |
+|--------|----------------------------|------------------------------|
+| GET    | `/api/settings`            | 获取设置（API Key 已脱敏）   |
+| PUT    | `/api/settings`            | 保存设置                     |
+| POST   | `/api/ai/suggest-steps`    | 调用 AI 为目标生成执行步骤   |
+
+**请求体示例（POST /api/todos）：**
 ```json
 {
     "text": "完成项目文档",
     "priority": "high",
-    "due_date": "2026-12-31"
+    "due_date": "2026-12-31",
+    "notes": "参考旧版模板",
+    "tags": ["工作", "写作"]
 }
 ```
 
+**请求体示例（POST /api/ai/suggest-steps）：**
+```json
+{
+    "goal": "学习 Python 异步编程",
+    "todo_id": 5
+}
+```
+
+## 📊 行为埋点数据库结构
+
+连接 MySQL 后，系统自动创建以下三张表：
+
+| 表名              | 说明                                           |
+|-------------------|------------------------------------------------|
+| `sessions`        | 每次启动 App = 一条记录，含时长和操作数        |
+| `events`          | 所有用户操作的原始流水（创建/完成/删除/搜索等）|
+| `todo_lifecycle`  | 每个任务从创建到结束的完整画像，支持完成率分析 |
+
 ## 🎨 界面预览
 
-- 渐变紫色主题，支持一键切换深色模式
+- 渐变主题，支持一键切换深色模式
 - 卡片式待办列表，悬停有微动效
 - 统计面板动态更新，数字跳动反馈
+- 步骤进度条直观展示任务推进情况
 
 ## 📝 设计哲学
 
-- **最小依赖**：后端仅需 Flask、Flask-CORS、FlaskWebGUI、openpyxl
+- **最小依赖**：核心功能仅需 Flask 生态，AI 和 MySQL 均为可选
 - **开箱即用**：打包后零配置，双击启动
-- **数据自主**：所有数据保存在本地，无网络请求，隐私安全
-
-## 🔮 未来可扩展方向
-
-- 分类标签、多清单切换
-- 定时提醒（系统通知）
-- 数据云同步（可选 WebDAV）
-- Mac / Linux 平台打包支持
+- **数据自主**：所有数据保存在本地，无强制网络请求，隐私安全
+- **可观测**：内置行为埋点，可选接入 MySQL 进行数据分析
 
 ## 📄 许可证
 
-MIT License - 自由使用、修改和分发。
+MIT License — 自由使用、修改和分发。
 
 ---
 
 **Enjoy your productive day with 轻清单 ☑️**
-```

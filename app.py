@@ -123,10 +123,10 @@ def load_settings() -> Dict[str, Any]:
         "ai_api_key": "",
         "ai_model": "gpt-3.5-turbo",
         "mysql": {
-            "host": "",
+            "host": "localhost",
             "port": 3306,
             "user": "root",
-            "password": "",
+            "password": "159506",
             "database": "todo_analytics"
         }
     }
