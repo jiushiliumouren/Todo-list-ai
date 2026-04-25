@@ -105,6 +105,97 @@ def validate_due_date(d) -> tuple[bool, str]:
 
 VALID_PRIORITIES = {"high", "mid", "low"}
 
+# ========== 宠物状态持久化 ==========
+PET_FILE = os.path.join(DATA_DIR, "pet_state.json")
+
+def load_pet() -> Dict[str, Any]:
+    """加载宠物状态"""
+    ensure_data_dir()
+    if os.path.exists(PET_FILE):
+        try:
+            with open(PET_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    now = time.time()
+    return {
+        "first_seen": now,
+        "character": "egg",
+        "unlocked": False,
+        "show_pet": True,
+        "interactions": 0,
+        "last_interact": now,
+    }
+
+def save_pet(data: Dict[str, Any]):
+    ensure_data_dir()
+    try:
+        with open(PET_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"保存宠物状态失败: {e}")
+
+def calculate_rfm_character() -> str:
+    """根据待办行为数据（RFM 改编）确定宠物角色，共 9 种（不含蛋）"""
+    if not todos:
+        return "bear"
+    total     = len(todos)
+    done_list = [t for t in todos if t.get("completed")]
+    done_cnt  = len(done_list)
+    pend_cnt  = total - done_cnt
+    comp_rate = done_cnt / total if total else 0
+
+    high_cnt  = sum(1 for t in todos if t.get("priority") == "high")
+    low_cnt   = sum(1 for t in todos if t.get("priority") == "low")
+    has_due   = sum(1 for t in todos if t.get("due_date"))
+    has_notes = sum(1 for t in todos if (t.get("notes") or "").strip())
+    has_tags  = sum(1 for t in todos if t.get("tags"))
+    has_steps = sum(1 for t in todos if t.get("steps"))
+    ai_steps  = sum(1 for t in todos if t.get("steps") and len(t.get("steps", [])) >= 3)
+
+    due_rate   = has_due   / total
+    notes_rate = has_notes / total
+    tags_rate  = has_tags  / total
+    steps_rate = has_steps / total
+    high_rate  = high_cnt  / total
+    low_rate   = low_cnt   / total
+    ai_rate    = ai_steps  / total
+
+    # 迷你龙：重度玩家，大量完成 + 高优先级为主
+    if total >= 20 and done_cnt >= 15 and high_rate >= 0.45:
+        return "dragon"
+
+    # 幽灵喵：极少操作但已完成，神秘稀有
+    if total <= 4 and done_cnt >= 2:
+        return "ghost"
+
+    # 侦探企鹅：极度有序，大量使用截止日期 + 标签
+    if due_rate >= 0.5 and (tags_rate >= 0.4 or steps_rate >= 0.5):
+        return "penguin"
+
+    # 智慧狐：善用 AI 与备注，深度规划型
+    if (ai_rate + notes_rate) >= 0.4 or (notes_rate >= 0.3 and steps_rate >= 0.3):
+        return "fox"
+
+    # 活力兔：高完成量 + 高优先级热衷者
+    if done_cnt >= 8 and high_rate >= 0.4:
+        return "bunny"
+
+    # 慵懒树懒：偏好低优先级，完成率偏低
+    if low_rate >= 0.5 and comp_rate < 0.4:
+        return "sloth"
+
+    # 贪睡仓鼠：待办堆积，完成率低
+    if pend_cnt >= 8 and comp_rate < 0.35:
+        return "hamster"
+
+    # 淡然猫：稳定完成，完成率高
+    if comp_rate >= 0.6 and done_cnt >= 5:
+        return "cat"
+
+    # 踏实熊：均衡默认
+    return "bear"
+
 # ========== 设置持久化 ==========
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 
@@ -186,6 +277,8 @@ def index():
 
 @app.route("/<path:path>")
 def serve_static(path):
+    if path == "guide.html":
+        return jsonify({"code": 404, "message": "Not Found"}), 404
     return send_from_directory(".", path)
 
 # ========== API ==========
@@ -494,6 +587,46 @@ def update_settings():
     analytics.init_db()
     logger.info("PUT /api/settings  ai_enabled=%s", s.get("ai_enabled"))
     return jsonify({"message": "设置已保存"})
+
+# ========== 宠物 API ==========
+@app.route("/api/pet", methods=["GET"])
+def get_pet():
+    pet = load_pet()
+    now = time.time()
+    first_seen = pet.get("first_seen", now)
+    days_elapsed = (now - first_seen) / 86400
+
+    # 超过 7 天且还未解锁 → 自动解锁并分配角色
+    if not pet.get("unlocked") and days_elapsed >= 7:
+        pet["unlocked"] = True
+        pet["character"] = calculate_rfm_character()
+        save_pet(pet)
+
+    return jsonify({
+        "character":   pet.get("character", "egg"),
+        "unlocked":    pet.get("unlocked", False),
+        "show_pet":    pet.get("show_pet", True),
+        "days_elapsed": round(days_elapsed, 1),
+        "days_to_unlock": max(0, round(7 - days_elapsed, 1)),
+        "interactions": pet.get("interactions", 0),
+    })
+
+@app.route("/api/pet/interact", methods=["POST"])
+def pet_interact():
+    pet = load_pet()
+    pet["interactions"] = pet.get("interactions", 0) + 1
+    pet["last_interact"] = time.time()
+    save_pet(pet)
+    return jsonify({"interactions": pet["interactions"]})
+
+@app.route("/api/pet/settings", methods=["PUT"])
+def update_pet_settings():
+    data = request.get_json(silent=True) or {}
+    pet = load_pet()
+    if "show_pet" in data:
+        pet["show_pet"] = bool(data["show_pet"])
+    save_pet(pet)
+    return jsonify({"message": "宠物设置已保存"})
 
 # ========== AI 建议步骤 API ==========
 @app.route("/api/ai/suggest-steps", methods=["POST"])

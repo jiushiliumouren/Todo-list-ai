@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>宠物图鉴 · 轻清单</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:#f5f0eb; --surface:#fff; --surface2:#f0ebe4; --border:#ddd6cc;
+    --accent:#c0392b; --text:#2c2318; --text2:#7a6e64;
+    --shadow:0 2px 16px rgba(44,35,24,.1);
+  }
+  body.dark {
+    --bg:#1a1714; --surface:#252220; --surface2:#2e2b28;
+    --border:#3d3830; --text:#e8e0d5; --text2:#9e9488;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Noto Serif SC',serif;background:var(--bg);color:var(--text);min-height:100vh;}
+  .page{max-width:960px;margin:0 auto;padding:40px 24px 80px;}
+
+  /* Header */
+  header{display:flex;align-items:center;justify-content:space-between;
+    border-bottom:2px solid var(--accent);padding-bottom:16px;margin-bottom:40px;gap:12px;}
+  .logo{font-size:1.5rem;font-weight:700;} .logo span{color:var(--accent);}
+  .hdr-right{display:flex;gap:10px;align-items:center;}
+  .btn-back{font-family:'JetBrains Mono',monospace;font-size:.78rem;font-weight:600;
+    padding:7px 14px;border:1.5px solid var(--border);border-radius:4px;
+    background:var(--surface);color:var(--text2);cursor:pointer;text-decoration:none;
+    transition:all .15s;}
+  .btn-back:hover{border-color:var(--accent);color:var(--accent);}
+  .btn-theme{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--border);
+    background:var(--surface);color:var(--text2);cursor:pointer;font-size:.9rem;
+    display:flex;align-items:center;justify-content:center;}
+
+  /* Intro */
+  .intro{text-align:center;margin-bottom:36px;}
+  .intro h2{font-size:1.15rem;font-weight:600;color:var(--accent);margin-bottom:8px;}
+  .intro p{font-size:.84rem;color:var(--text2);line-height:1.7;}
+
+  /* Grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px;}
+
+  /* Card */
+  .card{background:var(--surface);border:1.5px solid var(--border);border-radius:8px;
+    padding:22px 20px 18px;display:flex;flex-direction:column;align-items:center;gap:10px;
+    box-shadow:var(--shadow);transition:transform .2s,box-shadow .2s;position:relative;overflow:hidden;}
+  .card:hover{transform:translateY(-4px);box-shadow:0 8px 32px rgba(44,35,24,.14);}
+  .card-glow{position:absolute;top:0;left:0;right:0;height:3px;border-radius:8px 8px 0 0;}
+
+  /* Rarity colors */
+  .r0 .card-glow{background:linear-gradient(90deg,#aaa,#ddd,#aaa);}
+  .r2 .card-glow{background:linear-gradient(90deg,#78909C,#B0BEC5,#78909C);}
+  .r3 .card-glow{background:linear-gradient(90deg,#66BB6A,#AED581,#66BB6A);}
+  .r4 .card-glow{background:linear-gradient(90deg,#42A5F5,#7E57C2,#42A5F5);}
+  .r5 .card-glow{background:linear-gradient(90deg,#FF7043,#FFD54F,#AB47BC,#FF7043);background-size:200%;animation:shimmer 2s linear infinite;}
+  @keyframes shimmer{to{background-position:200% 0;}}
+
+  canvas{image-rendering:pixelated;cursor:pointer;}
+  canvas:hover{transform:scale(1.06);}
+  canvas:active{transform:scale(.94);}
+  .card-name{font-size:1rem;font-weight:700;}
+  .card-stars{font-size:.78rem;letter-spacing:1px;color:#F4A832;}
+  .card-stars .star-empty{opacity:.3;}
+  .card-tags{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;}
+  .tag{font-size:.68rem;font-family:'JetBrains Mono',monospace;
+    padding:2px 9px;border-radius:12px;border:1px solid var(--border);color:var(--text2);background:var(--surface2);}
+
+  /* Stat bars */
+  .stats{width:100%;display:flex;flex-direction:column;gap:5px;margin-top:4px;}
+  .stat-row{display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--text2);}
+  .stat-name{width:50px;flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:.65rem;}
+  .stat-bar-bg{flex:1;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;}
+  .stat-bar{height:100%;border-radius:3px;transition:width .5s ease;}
+
+  /* Description */
+  .card-desc{font-size:.8rem;color:var(--text2);text-align:center;line-height:1.65;font-style:italic;}
+
+  /* Egg special */
+  .card.locked .card-name::after{content:' 🔒';font-size:.75rem;}
+
+  /* Footer */
+  .footer{text-align:center;margin-top:48px;font-size:.75rem;color:var(--text2);
+    font-family:'JetBrains Mono',monospace;}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="logo">宠物<span>·</span>图鉴</div>
+    <div class="hdr-right">
+      <button class="btn-theme" id="themeBtn">🌙</button>
+      <span class="btn-back">🐾 开发者图鉴</span>
+    </div>
+  </header>
+
+  <div class="intro">
+    <h2>探索你的专属小伙伴</h2>
+    <p>根据你独特的使用习惯，会孵化出一位陪伴你的小精灵。<br>
+       坚持记录任务满 7 天，即可解锁属于你的宠物形态。</p>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="footer">轻清单 · 桌面待办 &nbsp;|&nbsp; 图鉴共收录 10 种宠物 &nbsp;|&nbsp; 祝你找到最契合的那一只 ✨</div>
+</div>
+
+<script>
+'use strict';
+const TAU=Math.PI*2;
+const fe=(c,x,y,rx,ry,col,rot=0)=>{c.fillStyle=col;c.beginPath();c.ellipse(x,y,rx,ry,rot,0,TAU);c.fill();};
+const se=(c,x,y,rx,ry,col,lw=1.5,rot=0)=>{c.strokeStyle=col;c.lineWidth=lw;c.beginPath();c.ellipse(x,y,rx,ry,rot,0,TAU);c.stroke();};
+const fc=(c,x,y,r,col)=>{c.fillStyle=col;c.beginPath();c.arc(x,y,r,0,TAU);c.fill();};
+const fr=(c,x,y,w,h,r,col)=>{c.fillStyle=col;c.beginPath();c.roundRect(x,y,w,h,r);c.fill();};
+const sl=(c,x1,y1,x2,y2,col,lw=1.5)=>{c.strokeStyle=col;c.lineWidth=lw;c.lineCap='round';c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();};
+const ft=(c,x1,y1,x2,y2,x3,y3,col)=>{c.fillStyle=col;c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.lineTo(x3,y3);c.closePath();c.fill();};
+
+function drowsyEyes(ctx,lx,ly,rx,ry,col='#4A2A10'){
+  ctx.fillStyle=col;
+  ctx.beginPath();ctx.arc(lx,ly,3.5,Math.PI*.85,Math.PI*2.15);ctx.lineTo(lx,ly);ctx.fill();
+  ctx.beginPath();ctx.arc(rx,ry,3.5,Math.PI*.85,Math.PI*2.15);ctx.lineTo(rx,ry);ctx.fill();
+}
+function openEyes(ctx,lx,ly,rx,ry,col='#4A2A10'){
+  fc(ctx,lx,ly,3.5,col);fc(ctx,rx,ry,3.5,col);
+  fc(ctx,lx+1,ly-1,1.2,'rgba(255,255,255,.75)');fc(ctx,rx+1,ry-1,1.2,'rgba(255,255,255,.75)');
+}
+function zzz(ctx,t,x=48,baseY=14,period=5000,alpha=.75,big=true){
+  const zp=(t%period)/period,za=Math.sin(zp*Math.PI)*alpha;
+  if(za<.05)return;
+  const zy=baseY-zp*18;
+  ctx.fillStyle=`rgba(100,120,210,${za})`;
+  ctx.font=`bold ${big?9:7}px monospace`;ctx.fillText('z',x,zy);
+  ctx.font=`bold ${big?6:4}px monospace`;ctx.fillText('z',x+5,zy-6);
+}
+
+// ── 绘制函数（与主应用完全一致）──────────────────────
+
+function drawEgg(ctx,t,a,af){
+  const bob=a?(af===1?-5:af===2?-2:0):Math.sin(t/3200)*1.5;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,13,3,'rgba(0,0,0,.07)');
+  fe(ctx,32,34,19,23,'#FFF5E0');se(ctx,32,34,19,23,'#DEC898',1.5);
+  fe(ctx,25,22,7,10,'rgba(255,255,255,.52)');
+  fe(ctx,21,39,5,3,'rgba(255,140,140,.3)');fe(ctx,43,39,5,3,'rgba(255,140,140,.3)');
+  sl(ctx,23,32,30,32,'#AE8868',1.6);sl(ctx,34,32,41,32,'#AE8868',1.6);
+  ctx.restore();
+  zzz(ctx,t,48,14,5200,.75);
+}
+function drawBunny(ctx,t,a,af){
+  const bob=Math.sin(t/3800)*.7,ew=Math.sin(t/4500)*1;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,12,3,'rgba(0,0,0,.07)');
+  fr(ctx,16+ew*.4,1,10,26,5,'#FFE0E8');fr(ctx,38-ew*.4,1,10,26,5,'#FFE0E8');
+  fr(ctx,19+ew*.4,4,4,19,2,'#FFB8CC');fr(ctx,41-ew*.4,4,4,19,2,'#FFB8CC');
+  fc(ctx,32,40,20,'#FFF0F6');se(ctx,32,40,20,20,'#D8A0B8',1.5);
+  fe(ctx,19,43,6,4,'rgba(255,150,150,.3)');fe(ctx,45,43,6,4,'rgba(255,150,150,.3)');
+  drowsyEyes(ctx,23,38,41,38,'#6A3A4A');
+  fe(ctx,32,44,3,2,'#FFB0C0');
+  sl(ctx,29,47,32,45,'#E090A0',1.2);sl(ctx,35,47,32,45,'#E090A0',1.2);
+  fe(ctx,32,57,13,7,'#FFF0F6');
+  ctx.restore();
+}
+function drawCat(ctx,t,a,af){
+  const bob=Math.sin(t/4200)*.7;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,13,3,'rgba(0,0,0,.07)');
+  ft(ctx,14,24,20,9,26,24,'#E8903A');ft(ctx,38,24,44,9,50,24,'#E8903A');
+  ft(ctx,16,22,20,13,24,22,'#FFB0A0');ft(ctx,40,22,44,13,48,22,'#FFB0A0');
+  fc(ctx,32,38,20,'#FFD0A0');se(ctx,32,38,20,20,'#C07840',1.5);
+  fe(ctx,18,41,6,3.5,'rgba(255,140,90,.3)');fe(ctx,46,41,6,3.5,'rgba(255,140,90,.3)');
+  fe(ctx,23,36.5,4,1.6,'#3A2010');fe(ctx,41,36.5,4,1.6,'#3A2010');
+  ft(ctx,30,42,34,42,32,45,'#FF9898');
+  sl(ctx,12,42,27,43.5,'#C0A070',1);sl(ctx,12,45,27,44.5,'#C0A070',1);
+  sl(ctx,52,42,37,43.5,'#C0A070',1);sl(ctx,52,45,37,44.5,'#C0A070',1);
+  sl(ctx,28,46,32,48,'#C07840',1.2);sl(ctx,36,46,32,48,'#C07840',1.2);
+  fe(ctx,32,57,13,7,'#FFD0A0');
+  ctx.restore();
+}
+function drawBear(ctx,t,a,af){
+  const bob=Math.sin(t/4800)*.6;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,13,3,'rgba(0,0,0,.08)');
+  fc(ctx,17,19,9,'#8D6E63');fc(ctx,47,19,9,'#8D6E63');
+  fc(ctx,17,19,5,'#C09080');fc(ctx,47,19,5,'#C09080');
+  fc(ctx,32,38,21,'#8D6E63');se(ctx,32,38,21,21,'#5D4037',1.5);
+  fe(ctx,32,46,10,7,'#D7B8A8');
+  drowsyEyes(ctx,22,34,42,34,'#3A2010');
+  fe(ctx,32,43,4,3,'#3A2010');
+  sl(ctx,29,48,32,50,'#5D4037',1.2);sl(ctx,35,48,32,50,'#5D4037',1.2);
+  fc(ctx,32,57,14,'#8D6E63');fe(ctx,32,57,9,6,'#BCA090');
+  ctx.restore();
+  zzz(ctx,t,50,16,8500,.45,false);
+}
+function drawFox(ctx,t,a,af){
+  const bob=Math.sin(t/3500)*.8;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,12,3,'rgba(0,0,0,.07)');
+  ft(ctx,14,25,19,5,26,23,'#D04000');ft(ctx,38,23,45,5,50,25,'#D04000');
+  ft(ctx,16,23,19,9,24,23,'#FFAB91');ft(ctx,40,23,45,9,48,23,'#FFAB91');
+  ft(ctx,17,22,19,13,23,22,'#FFE8D8');ft(ctx,41,22,45,13,47,22,'#FFE8D8');
+  fc(ctx,32,38,19,'#FF8A65');se(ctx,32,38,19,19,'#BF360C',1.5);
+  fe(ctx,32,47,14,9,'#FFF0EC');
+  fe(ctx,18,40,5,3.5,'rgba(200,80,30,.25)');fe(ctx,46,40,5,3.5,'rgba(200,80,30,.25)');
+  fe(ctx,22,35.5,3.5,2.2,'#1A2A4A');fe(ctx,42,35.5,3.5,2.2,'#1A2A4A');
+  fc(ctx,32,42,2.5,'#CC4000');
+  sl(ctx,28,45,32,47,'#BF360C',1.2);sl(ctx,36,45.5,32,47,'#BF360C',1.2);
+  fe(ctx,32,57,13,7,'#FF8A65');fe(ctx,32,57,8,6,'#FFF0EC');
+  ctx.restore();
+}
+function drawDragon(ctx,t,a,af){
+  const bob=Math.sin(t/2800)*.9;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,12,3,'rgba(0,0,0,.07)');
+  ft(ctx,18,44,3,32,17,51,'#256028');ft(ctx,46,44,61,32,47,51,'#256028');
+  ft(ctx,18,44,5,35,17,50,'#4CAF50');ft(ctx,46,44,59,35,47,50,'#4CAF50');
+  ft(ctx,22,19,20,7,25,21,'#C8E6C9');ft(ctx,42,19,44,7,39,21,'#C8E6C9');
+  fe(ctx,32,42,15,14,'#66BB6A');
+  fc(ctx,32,30,18,'#66BB6A');se(ctx,32,30,18,18,'#2E7D32',1.5);
+  fc(ctx,22,33,2.5,'#4CAF50');fc(ctx,32,33,2.5,'#4CAF50');fc(ctx,42,33,2.5,'#4CAF50');
+  fc(ctx,27,40,2,'#4CAF50');fc(ctx,37,40,2,'#4CAF50');
+  fe(ctx,18,35,4,3,'rgba(150,255,150,.3)');fe(ctx,46,35,4,3,'rgba(150,255,150,.3)');
+  fe(ctx,22,28,4,2.5,'#1B5E20');fe(ctx,42,28,4,2.5,'#1B5E20');
+  fe(ctx,22,28,2.5,1.5,'#E65100');fe(ctx,42,28,2.5,1.5,'#E65100');
+  fc(ctx,29,35,1.5,'#2E7D32');fc(ctx,35,35,1.5,'#2E7D32');
+  sl(ctx,25,38,39,38,'#2E7D32',1.5);
+  ctx.restore();
+}
+function drawPenguin(ctx,t,a,af){
+  const bob=Math.sin(t/4500)*.6;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,11,3,'rgba(0,0,0,.08)');
+  fe(ctx,32,53,14,10,'#263238');fe(ctx,32,53,8,8,'#ECEFF1');
+  fc(ctx,32,30,18,'#263238');se(ctx,32,30,18,18,'#102027',1.5);
+  fe(ctx,32,33,12,13,'#ECEFF1');
+  ft(ctx,27,39,37,39,32,47,'#FF9800');
+  fc(ctx,22,25,5,'#ECEFF1');fc(ctx,42,25,5,'#ECEFF1');
+  fc(ctx,22,25,2.8,'#1A1A2A');fc(ctx,42,25,2.8,'#1A1A2A');
+  fc(ctx,22.8,24.2,1.1,'rgba(255,255,255,.85)');
+  se(ctx,42,25,6,6,'#FFD700',1.8);sl(ctx,46,29,49,33,'#FFD700',1.5);
+  fe(ctx,16,49,6,12,'#263238',0.4);fe(ctx,48,49,6,12,'#263238',-0.4);
+  ctx.restore();
+}
+function drawHamster(ctx,t,a,af){
+  const bob=Math.sin(t/6000)*.4;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,16,3,'rgba(0,0,0,.07)');
+  fc(ctx,9,43,16,'#FFD54F');fc(ctx,55,43,16,'#FFD54F');
+  se(ctx,9,43,16,16,'#E65100',1);se(ctx,55,43,16,16,'#E65100',1);
+  fe(ctx,8,44,10,8,'#FFC107');fe(ctx,56,44,10,8,'#FFC107');
+  fc(ctx,32,35,17,'#FFE082');se(ctx,32,35,17,17,'#FF8F00',1.5);
+  fe(ctx,15,41,7,5,'rgba(255,150,100,.4)');fe(ctx,49,41,7,5,'rgba(255,150,100,.4)');
+  fc(ctx,21,22,7,'#FFB300');fc(ctx,43,22,7,'#FFB300');
+  fc(ctx,21,22,4,'#FFCC80');fc(ctx,43,22,4,'#FFCC80');
+  fe(ctx,24,34,3,1.3,'#3A2010');fe(ctx,40,34,3,1.3,'#3A2010');
+  fc(ctx,32,40,3,'#FF8A65');
+  ctx.restore();
+  zzz(ctx,t,50,10,4000,.9);
+}
+function drawGhost(ctx,t,a,af){
+  const bob=Math.sin(t/2200)*2.8,wave=Math.sin(t/900)*2;
+  ctx.save();ctx.translate(0,bob);
+  ctx.shadowColor='#7B1FA2';ctx.shadowBlur=12;
+  ctx.fillStyle='rgba(220,235,255,.92)';
+  ctx.beginPath();
+  ctx.moveTo(14,52);
+  ctx.lineTo(14+wave,52);ctx.lineTo(19-wave,58);ctx.lineTo(25+wave,52);
+  ctx.lineTo(32,55);ctx.lineTo(39-wave,52);ctx.lineTo(45+wave,58);ctx.lineTo(50-wave,52);
+  ctx.arc(32,27,18,Math.PI*.15,Math.PI*.85,true);
+  ctx.closePath();ctx.fill();ctx.shadowBlur=0;
+  ft(ctx,14,24,19,9,25,26,'rgba(195,215,255,.95)');
+  ft(ctx,39,26,45,9,50,24,'rgba(195,215,255,.95)');
+  ft(ctx,16,23,19,13,24,25,'#CC99FF');ft(ctx,40,25,45,13,48,23,'#CC99FF');
+  ctx.fillStyle='#6A1B9A';
+  ctx.beginPath();ctx.arc(23,29,4,Math.PI*1.1,Math.PI*1.9);ctx.lineTo(23,29);ctx.fill();
+  ctx.beginPath();ctx.arc(41,29,4,Math.PI*1.1,Math.PI*1.9);ctx.lineTo(41,29);ctx.fill();
+  sl(ctx,27,36,32,38,'#9C27B0',1.2);sl(ctx,37,36,32,38,'#9C27B0',1.2);
+  ctx.restore();
+}
+function drawSloth(ctx,t,a,af){
+  const bob=Math.sin(t/7000)*.5;
+  ctx.save();ctx.translate(0,bob);
+  fe(ctx,32,58,13,3,'rgba(0,0,0,.06)');
+  fe(ctx,10,47,8,18,'#6D4C41',0.32);fe(ctx,54,47,8,18,'#6D4C41',-0.32);
+  fc(ctx,8,54,6,'#8D6E63');fc(ctx,56,54,6,'#8D6E63');
+  fc(ctx,32,36,19,'#8D6E63');se(ctx,32,36,19,19,'#4E342E',1.5);
+  fe(ctx,32,38,14,12,'#BCAAA4');
+  ctx.fillStyle='#4E342E';
+  ctx.beginPath();ctx.arc(22,33,4,Math.PI*.85,Math.PI*2.15);ctx.lineTo(22,33);ctx.fill();
+  ctx.beginPath();ctx.arc(42,33,4,Math.PI*.85,Math.PI*2.15);ctx.lineTo(42,33);ctx.fill();
+  fe(ctx,22,35,3,1.2,'#6D4C41');fe(ctx,42,35,3,1.2,'#6D4C41');
+  fe(ctx,32,41,3.5,2.5,'#5D4037');
+  ctx.strokeStyle='#5D4037';ctx.lineWidth=1.5;ctx.lineCap='round';
+  ctx.beginPath();ctx.arc(32,43,4.5,.2,Math.PI-.2);ctx.stroke();
+  ctx.strokeStyle='rgba(78,52,46,.25)';ctx.lineWidth=2;
+  ctx.beginPath();
+  for(let i=0;i<6;i++){const a2=(i/5)*Math.PI+Math.PI;ctx.moveTo(32+19*Math.cos(a2),36+19*Math.sin(a2));ctx.lineTo(32+23*Math.cos(a2+.1),36+23*Math.sin(a2+.1));}
+  ctx.stroke();
+  ctx.restore();
+  zzz(ctx,t,50,8,6500,.85);
+}
+
+  /* ── 坐垫（栖息地） ── */
+  function drawCushion(ctx, t) {
+    ctx.fillStyle = 'rgba(0,0,0,.04)';
+    ctx.beginPath(); ctx.ellipse(32, 58, 18, 5, 0, 0, Math.PI*2); ctx.fill();
+    const by = 51 + Math.sin(t/3600)*.25;
+    fe(ctx,32,by,18,9,'rgba(255,200,220,.35)');
+    se(ctx,32,by,18,9,'rgba(220,160,190,.25)',.8);
+    ctx.fillStyle = 'rgba(220,160,190,.2)';
+    for(let i=0;i<7;i++){ const a2=(i/6)*Math.PI;
+      ctx.beginPath(); ctx.arc(32+Math.cos(a2)*15,by+Math.sin(a2)*7,1,0,TAU); ctx.fill(); }
+  }
+
+  // ── 图鉴数据 ─────────────────────────────────────────
+const PETS = [
+  {
+    key:'egg', name:'神秘蛋', rarity:0, locked:true,
+    tags:['神秘','孵化中','待解锁'],
+    desc:'静静等待孵化的神秘蛋。它的内心世界无人知晓，也许正在做一个漫长的梦……',
+    stats:{活跃度:1,敏感度:5,社交力:1,夜行性:3},
+    draw:drawEgg
+  },
+  {
+    key:'bunny', name:'活力兔', rarity:3,
+    tags:['热情','高效','冲劲十足'],
+    desc:'蹦蹦跳跳停不下来！最喜欢迎接各种挑战，干劲十足，是大家公认的元气担当。',
+    stats:{活跃度:5,敏感度:3,社交力:4,夜行性:2},
+    draw:drawBunny
+  },
+  {
+    key:'cat', name:'淡然猫', rarity:3,
+    tags:['从容','稳定','气质猫'],
+    desc:'不紧不慢，处变不惊。每件事都会稳稳地完成，散发着一种迷人的松弛感。',
+    stats:{活跃度:3,敏感度:4,社交力:2,夜行性:4},
+    draw:drawCat
+  },
+  {
+    key:'bear', name:'踏实熊', rarity:2,
+    tags:['稳重','踏实','可靠'],
+    desc:'默默努力，脚踏实地。不声不响地完成自己的事，是最值得信赖的小伙伴。',
+    stats:{活跃度:2,敏感度:2,社交力:3,夜行性:2},
+    draw:drawBear
+  },
+  {
+    key:'fox', name:'智慧狐', rarity:4,
+    tags:['善谋','规划型','AI达人'],
+    desc:'善于思考，工具用得溜。把每件事都分析得清清楚楚，是团队里的策略担当。',
+    stats:{活跃度:3,敏感度:5,社交力:3,夜行性:3},
+    draw:drawFox
+  },
+  {
+    key:'dragon', name:'迷你龙', rarity:5,
+    tags:['传奇','所向披靡','超高产'],
+    desc:'传说中最稀有的伙伴！任务完成量惊人，高难任务手到擒来，龙族荣耀实至名归。',
+    stats:{活跃度:5,敏感度:4,社交力:4,夜行性:3},
+    draw:drawDragon
+  },
+  {
+    key:'penguin', name:'侦探企鹅', rarity:4,
+    tags:['精细','有序','时间管理'],
+    desc:'头戴单片镜，事无巨细全都记录在案。截止日期、标签一个不落，完美主义的代表。',
+    stats:{活跃度:4,敏感度:5,社交力:3,夜行性:2},
+    draw:drawPenguin
+  },
+  {
+    key:'hamster', name:'贪睡仓鼠', rarity:3,
+    tags:['囤积控','慢热','存货丰富'],
+    desc:'两颊鼓鼓，什么都往里塞！待办清单越堆越高，但它总说"慢慢来，不着急的"。',
+    stats:{活跃度:1,敏感度:2,社交力:4,夜行性:5},
+    draw:drawHamster
+  },
+  {
+    key:'ghost', name:'幽灵喵', rarity:5,
+    tags:['神出鬼没','稀有','深夜系'],
+    desc:'最神秘的伙伴，时隐时现。只有极少数人才能与它邂逅，据说月圆之夜它会特别活跃。',
+    stats:{活跃度:2,敏感度:5,社交力:1,夜行性:5},
+    draw:drawGhost
+  },
+  {
+    key:'sloth', name:'慵懒树懒', rarity:2,
+    tags:['慢生活','佛系','自得其乐'],
+    desc:'慢慢的，一点都不着急。但它告诉我们：放慢脚步，才能看见更多美好。',
+    stats:{活跃度:1,敏感度:1,社交力:2,夜行性:4},
+    draw:drawSloth
+  },
+];
+
+// ── 构建图鉴卡片 ──────────────────────────────────────
+const STAT_COLORS = ['#EF5350','#FF9800','#FFC107','#66BB6A','#42A5F5'];
+
+function buildCard(pet) {
+  const div = document.createElement('div');
+  div.className = `card r${pet.rarity} ${pet.locked?'locked':''}`;
+
+  const glow = document.createElement('div'); glow.className='card-glow'; div.appendChild(glow);
+
+  // Canvas
+  const cv = document.createElement('canvas');
+  cv.width=64; cv.height=64; cv.style.cssText='width:80px;height:80px;';
+  div.appendChild(cv);
+
+  // Name
+  const nm = document.createElement('div'); nm.className='card-name';
+  nm.textContent = pet.locked ? '神秘蛋' : pet.name; div.appendChild(nm);
+
+  // Stars
+  if(pet.rarity>0){
+    const sr = document.createElement('div'); sr.className='card-stars';
+    sr.innerHTML = '★'.repeat(pet.rarity)+'<span class="star-empty">'+'★'.repeat(5-pet.rarity)+'</span>';
+    div.appendChild(sr);
+  } else {
+    const sr = document.createElement('div'); sr.className='card-stars';
+    sr.style.opacity='.35'; sr.textContent='????'; div.appendChild(sr);
+  }
+
+  // Tags
+  const tags = document.createElement('div'); tags.className='card-tags';
+  pet.tags.forEach(t=>{ const sp=document.createElement('span'); sp.className='tag'; sp.textContent=t; tags.appendChild(sp); });
+  div.appendChild(tags);
+
+  // Description
+  const desc = document.createElement('div'); desc.className='card-desc'; desc.textContent=pet.desc; div.appendChild(desc);
+
+  // Stats
+  const stats = document.createElement('div'); stats.className='stats';
+  Object.entries(pet.stats).forEach(([name,val])=>{
+    const row=document.createElement('div'); row.className='stat-row';
+    const nm2=document.createElement('div'); nm2.className='stat-name'; nm2.textContent=name;
+    const bg=document.createElement('div'); bg.className='stat-bar-bg';
+    const bar=document.createElement('div'); bar.className='stat-bar';
+    bar.style.cssText=`width:${val*20}%;background:${STAT_COLORS[val-1]||'#ccc'};`;
+    bg.appendChild(bar); row.append(nm2,bg); stats.appendChild(row);
+  });
+  div.appendChild(stats);
+
+  // Start animation loop for this canvas
+  const ctx = cv.getContext('2d');
+  let rafId;
+  function animate(now){
+    rafId=requestAnimationFrame(animate);
+    ctx.clearRect(0,0,64,64);
+    if(pet.key !== 'egg') drawCushion(ctx, now);
+    pet.draw(ctx, now, false, 0);
+  }
+  rafId=requestAnimationFrame(animate);
+
+  // Click to trigger active
+  let activeT=0, active=false, af=0, lastFT=0;
+  cv.addEventListener('click',()=>{
+    active=true; activeT=performance.now(); af=0;
+    cancelAnimationFrame(rafId);
+    function anim(now){
+      rafId=requestAnimationFrame(anim);
+      ctx.clearRect(0,0,64,64);
+      if(pet.key !== 'egg') drawCushion(ctx, now);
+      if(now-lastFT>160){af=(af+1)%4;lastFT=now;}
+      if(now-activeT>1200){active=false; cancelAnimationFrame(rafId); rafId=requestAnimationFrame(animate); return;}
+      pet.draw(ctx,now,true,af);
+    }
+    rafId=requestAnimationFrame(anim);
+  });
+
+  return div;
+}
+
+// Render
+const grid = document.getElementById('grid');
+PETS.forEach(p => grid.appendChild(buildCard(p)));
+
+// Theme
+function applyTheme(dark){ document.body.classList.toggle('dark',dark); document.getElementById('themeBtn').textContent=dark?'☀️':'🌙'; }
+document.getElementById('themeBtn').addEventListener('click',()=>{
+  const dark=!document.body.classList.contains('dark');
+  applyTheme(dark);
+  try{localStorage.setItem('theme',dark?'dark':'light');}catch{}
+});
+try{
+  const s=localStorage.getItem('theme');
+  applyTheme(s==='dark'||(!s&&matchMedia('(prefers-color-scheme:dark)').matches));
+}catch{applyTheme(false);}
+</script>
+</body>
+</html>
