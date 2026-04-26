@@ -14,11 +14,11 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 # ── 全局状态 ──────────────────────────────────────────────────
-_conn = None
-_conn_lock = threading.Lock()
 _session_id: Optional[str] = None
 _session_action_count = 0
 _mysql_available = None        # None=未检测, True/False=已检测
+_mysql_lock = threading.Lock()
+_thread_local = threading.local()
 
 DATA_DIR = os.path.join(os.path.expanduser("~"), ".todo_app")
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
@@ -33,27 +33,58 @@ def _get_mysql_cfg() -> dict:
         return {}
 
 
-# ── 连接管理 ──────────────────────────────────────────────────
+# ── 连接管理（每个线程独立连接，避免多线程共享 conn 的 packet 错乱）──
 def _get_conn():
-    global _conn, _mysql_available
-    with _conn_lock:
+    """返回当前线程的 MySQL 连接，首次访问时创建。
+    全局检测 mysql 是否可用（_mysql_available），避免每个线程都重试。"""
+    global _mysql_available
+
+    if _mysql_available is False:
+        return None
+
+    # 当前线程已有连接 → ping 一下检查是否存活
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.ping(reconnect=True)
+            return conn
+        except Exception:
+            _thread_local.conn = None
+
+    # 全局判定 MySQL 是否可用（只检测一次）
+    with _mysql_lock:
         if _mysql_available is False:
             return None
-        if _conn is not None:
+        if _mysql_available is None:
+            cfg = _get_mysql_cfg()
+            if not cfg.get("host"):
+                _mysql_available = False
+                return None
             try:
-                _conn.ping(reconnect=True)
-                return _conn
-            except Exception:
-                _conn = None
+                import pymysql
+                test_conn = pymysql.connect(
+                    host=cfg.get("host", "localhost"),
+                    port=int(cfg.get("port", 3306)),
+                    user=cfg.get("user", "root"),
+                    password=cfg.get("password", ""),
+                    database=cfg.get("database", "todo_analytics"),
+                    charset="utf8mb4",
+                    autocommit=True,
+                    connect_timeout=5,
+                )
+                test_conn.close()
+                _mysql_available = True
+                logger.info("[analytics] MySQL 连接成功")
+            except Exception as e:
+                _mysql_available = False
+                logger.warning(f"[analytics] MySQL 连接失败，埋点将跳过: {e}")
+                return None
 
+        # _mysql_available 为 True，为当前线程创建独立连接
         cfg = _get_mysql_cfg()
-        if not cfg.get("host"):
-            _mysql_available = False
-            return None
-
         try:
             import pymysql
-            _conn = pymysql.connect(
+            _thread_local.conn = pymysql.connect(
                 host=cfg.get("host", "localhost"),
                 port=int(cfg.get("port", 3306)),
                 user=cfg.get("user", "root"),
@@ -63,12 +94,9 @@ def _get_conn():
                 autocommit=True,
                 connect_timeout=5,
             )
-            _mysql_available = True
-            logger.info("[analytics] MySQL 连接成功")
-            return _conn
+            return _thread_local.conn
         except Exception as e:
-            _mysql_available = False
-            logger.warning(f"[analytics] MySQL 连接失败，埋点将跳过: {e}")
+            logger.warning(f"[analytics] 当前线程创建连接失败: {e}")
             return None
 
 
@@ -142,6 +170,23 @@ def init_db():
         except Exception as e:
             logger.error(f"[analytics] 建表失败: {e}")
     _run(_do)
+
+
+def reset_mysql():
+    """MySQL 配置变化时调用：清空已检测标记，让下次操作重新检测。
+    线程本地连接会被垃圾回收，无需手动关闭。"""
+    global _mysql_available
+    with _mysql_lock:
+        _mysql_available = None
+    # 清理当前线程的连接
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _thread_local.conn = None
+    logger.info("[analytics] MySQL 连接标记已重置")
 
 
 # ── 会话管理 ──────────────────────────────────────────────────

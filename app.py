@@ -581,10 +581,8 @@ def update_settings():
         if "port" in m:
             s["mysql"]["port"] = int(m["port"])
     save_settings(s)
-    # MySQL 配置变化时重置连接，让下次自动重连
-    analytics._conn = None
-    analytics._mysql_available = None
-    analytics.init_db()
+    # MySQL 配置变化时重置连接标记，让下次自动重连
+    analytics.reset_mysql()
     logger.info("PUT /api/settings  ai_enabled=%s", s.get("ai_enabled"))
     return jsonify({"message": "设置已保存"})
 
@@ -693,6 +691,180 @@ def suggest_steps():
         logger.error(f"AI 建议步骤失败: {e}")
         return jsonify({"error": f"AI 请求失败：{str(e)}"}), 500
 
+# ========== 番茄钟数据持久化 ==========
+def _pomodoro_file() -> str:
+    """动态获取番茄钟数据文件路径（兼容测试时替换 DATA_DIR）"""
+    return os.path.join(DATA_DIR, "pomodoro_stats.json")
+
+def load_pomodoro() -> Dict[str, Any]:
+    """加载番茄钟数据"""
+    ensure_data_dir()
+    pfile = _pomodoro_file()
+    if os.path.exists(pfile):
+        try:
+            with open(pfile, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"加载番茄钟数据失败: {e}")
+    return {
+        "settings": {
+            "work_minutes": 25,
+            "break_minutes": 5,
+            "long_break_minutes": 15,
+            "cycles_before_long_break": 4,
+        },
+        "records": [],
+        "today_count": 0,
+        "total_count": 0,
+        "last_date": "",
+    }
+
+def save_pomodoro(data: Dict[str, Any]):
+    """保存番茄钟数据"""
+    ensure_data_dir()
+    try:
+        with open(_pomodoro_file(), 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"保存番茄钟数据失败: {e}")
+
+def validate_pomodoro_settings(s: Dict[str, Any]) -> tuple[bool, str]:
+    """验证番茄钟设置（只校验传入的字段）"""
+    for key in ("work_minutes", "break_minutes", "long_break_minutes"):
+        if key in s:
+            val = s[key]
+            if not isinstance(val, int) or val < 1 or val > 120:
+                return False, f"{key} 必须为 1-120 的整数"
+    if "cycles_before_long_break" in s:
+        cycles = s["cycles_before_long_break"]
+        if not isinstance(cycles, int) or cycles < 1 or cycles > 10:
+            return False, "cycles_before_long_break 必须为 1-10 的整数"
+    return True, ""
+
+# ========== 番茄钟 API ==========
+@app.route("/api/pomodoro/stats", methods=["GET"])
+def pomodoro_stats():
+    """获取番茄钟统计"""
+    pom = load_pomodoro()
+    today = time.strftime("%Y-%m-%d")
+    today_count = pom.get("today_count", 0)
+    if pom.get("last_date") != today:
+        today_count = 0
+    return jsonify({
+        "today_count": today_count,
+        "total_count": pom.get("total_count", 0),
+        "settings": pom.get("settings", {}),
+        "records": pom.get("records", [])[-100:],
+    })
+
+@app.route("/api/pomodoro/complete", methods=["POST"])
+def pomodoro_complete():
+    """记录一个番茄钟完成"""
+    data = request.get_json(silent=True) or {}
+    todo_id = data.get("todo_id")
+    if todo_id is not None:
+        if not isinstance(todo_id, int):
+            return jsonify({"error": "todo_id 必须是整数"}), 400
+        if not find_todo(todo_id):
+            return jsonify({"error": "关联的待办事项未找到"}), 404
+    # 验证 duration 参数
+    duration = data.get("duration")
+    if duration is not None:
+        if not isinstance(duration, (int, float)) or duration < 1 or duration > 180:
+            return jsonify({"error": "duration 必须为 1-180 的数值（分钟）"}), 400
+        duration = int(duration)
+    else:
+        duration = 25  # 默认 25 分钟
+
+    pom = load_pomodoro()
+    today = time.strftime("%Y-%m-%d")
+    now_str = time.strftime("%H:%M:%S")
+
+    # 跨日重置
+    if pom.get("last_date") != today:
+        pom["today_count"] = 0
+        pom["last_date"] = today
+
+    pom["today_count"] = pom.get("today_count", 0) + 1
+    pom["total_count"] = pom.get("total_count", 0) + 1
+    pom.setdefault("records", [])
+
+    record = {
+        "date": today,
+        "time": now_str,
+        "duration": duration,
+        "todo_id": todo_id,
+    }
+    pom["records"].append(record)
+    save_pomodoro(pom)
+
+    analytics.record_event("pomodoro_complete", todo_id, {
+        "duration": duration,
+        "today_count": pom["today_count"],
+    })
+    logger.info("POST /api/pomodoro/complete  today=%d total=%d",
+                pom["today_count"], pom["total_count"])
+    return jsonify({
+        "today_count": pom["today_count"],
+        "total_count": pom["total_count"],
+        "record": record,
+    })
+
+@app.route("/api/pomodoro/settings", methods=["GET"])
+def pomodoro_get_settings():
+    """获取番茄钟设置"""
+    pom = load_pomodoro()
+    return jsonify(pom.get("settings", {}))
+
+@app.route("/api/pomodoro/settings", methods=["PUT"])
+def pomodoro_update_settings():
+    """更新番茄钟设置"""
+    data = request.get_json(silent=True) or {}
+    pom = load_pomodoro()
+    s = pom.setdefault("settings", {})
+    # 只更新传入的字段
+    updates = {}
+    for key in ("work_minutes", "break_minutes", "long_break_minutes", "cycles_before_long_break"):
+        if key in data:
+            updates[key] = data[key]
+    if updates:
+        ok, msg = validate_pomodoro_settings(updates)
+        if not ok:
+            return jsonify({"error": msg}), 400
+        s.update(updates)
+        save_pomodoro(pom)
+    logger.info("PUT /api/pomodoro/settings  %s", updates)
+    return jsonify({"message": "设置已保存", "settings": s})
+
 # ========== 启动 ==========
 if __name__ == '__main__':
-    FlaskUI(app=app, server="flask", width=1000, height=700).run()
+    import sys, threading, time, urllib.request, webbrowser
+
+    # --webview 使用 FlaskWebGUI（Chrome app 模式），否则用系统默认浏览器
+    use_webview = "--webview" in sys.argv
+
+    if use_webview:
+        FlaskUI(
+            app=app, server="flask", width=1000, height=700,
+            extra_flags=["--no-proxy-server", "--disable-features=ProxySupport"]
+        ).run()
+    else:
+        port = 5000
+        url = f"http://127.0.0.1:{port}"
+
+        # 后台线程等服务器就绪后打开浏览器
+        def _open_browser():
+            for _ in range(30):
+                try:
+                    urllib.request.urlopen(url, timeout=1)
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            webbrowser.open(url)
+
+        threading.Thread(target=_open_browser, daemon=True).start()
+
+        try:
+            app.run(host="127.0.0.1", port=port, debug=False)
+        except KeyboardInterrupt:
+            print("\n已退出")
